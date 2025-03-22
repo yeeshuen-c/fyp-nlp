@@ -1,4 +1,5 @@
 __pycache__
 venv/
 .env
-cmd.txt
+command.txt
+sentiment_analysis_results.xlsx

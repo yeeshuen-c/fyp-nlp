@@ -1,11 +1,12 @@
 # Step 1: Install necessary libraries
-# pip install nltk emoji vaderSentiment googletrans==4.0.0-rc1 pandas openpyxl deep-translator
+# pip install nltk emoji vaderSentiment googletrans==4.0.0-rc1 pandas openpyxl deep-translator langdetect
 
 import re
 import emoji
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import pandas as pd
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
+from langdetect import detect, DetectorFactory
 from app.database import db
 
 # Step 2: Function for preprocessing text
@@ -45,20 +46,44 @@ def extend_vader_for_malay(analyzer):
     analyzer.lexicon.update(malay_lexicon)
 
 # Step 4: Read comments from MongoDB and translate from Malay and Chinese to English
+DetectorFactory.seed = 0
+
 async def read_and_translate_comments():
     comments_data = await db.comments.find({"comment_id": {"$gt": 100}}).to_list()
-    translator = GoogleTranslator(target='en')
     translated_comments = []
     for comment_data in comments_data:
         for comment in comment_data['comments']:
             comment_content = comment['comment_content']
-            # Detect language and translate to English
-            translated_text = translator.translate(comment_content)
+
+            try:
+                # Detect language
+                detected_lang = detect(comment_content)
+            except:
+                detected_lang = 'auto'  # Default if detection fails
+
+            # Translate only if detected language is not English
+            if detected_lang != 'en':
+                if detected_lang == 'zh-cn':
+                    detected_lang = 'zh-CN'
+                elif detected_lang == 'zh-tw':
+                    detected_lang = 'zh-TW'
+                elif detected_lang == 'ms':
+                    detected_lang = 'ms'
+                try:
+                    translated_text = GoogleTranslator(source=detected_lang, target='en').translate(comment_content)
+                except Exception as e:
+                    print(f"GoogleTranslator failed: {e}. Trying MyMemoryTranslator...")
+                    translated_text = MyMemoryTranslator(source=detected_lang, target='en').translate(comment_content)
+            else:
+                translated_text = comment_content  # No translation needed
+
             translated_comments.append({
                 'comment_id': comment_data['comment_id'],
+                'post_id': comment_data['post_id'],
                 'original_comment': comment_content,
                 'translated_comment': translated_text
             })
+
     return translated_comments
 
 # Step 5: Main program
@@ -68,7 +93,7 @@ if __name__ == "__main__":
     async def main():
         # Initialize SentimentIntensityAnalyzer
         analyzer = SentimentIntensityAnalyzer()
-        analyzer.lexicon['scam'] = 0.0 # Neutral sentiment for 'scam'
+        # analyzer.lexicon['scam'] = 0.0 # Neutral sentiment for 'scam'
         
         # Extend VADER lexicon for Malay words
         extend_vader_for_malay(analyzer)
@@ -78,6 +103,7 @@ if __name__ == "__main__":
         
         # Preprocess comments and perform sentiment analysis
         results = []
+        overall_sentiment_scores = []
         for comment in comments:
             cleaned_comment = preprocess_text(comment['translated_comment'])
             sentiment_scores = analyzer.polarity_scores(cleaned_comment)
@@ -101,15 +127,43 @@ if __name__ == "__main__":
                 'Sentiment': sentiment
             })
 
-            # Update the sentiment analysis result in the database
+            # Update the sentiment analysis result for each comment in the database
             # await db.comments.update_one(
-            #     {'comment_id': comment['comment_id']},
-            #     {'$set': {'analysis.sentiment_analysis': sentiment}}
+            #     {'comment_id': comment['comment_id'], 'comments.comment_content': comment['original_comment']},
+            #     {'$set': {'comments.$.sentiment_analysis': sentiment}}
             # )
 
+            # Collect sentiment scores for overall analysis
+            overall_sentiment_scores.append(sentiment_scores['compound'])
+
+            # Calculate overall sentiment based on average compound score
+            if overall_sentiment_scores:
+                average_sentiment_score = sum(overall_sentiment_scores) / len(overall_sentiment_scores)
+                if average_sentiment_score >= 0.05:
+                    overall_sentiment = 'Positive'
+                elif average_sentiment_score <= -0.05:
+                    overall_sentiment = 'Negative'
+                else:
+                    overall_sentiment = 'Neutral'
+            else:
+                overall_sentiment = 'Neutral'
+            
+            print(overall_sentiment_scores)
+            print(average_sentiment_score)
+            print("sent",overall_sentiment)
+
+        # Update the overall sentiment analysis result in the database
+        # for comment in comments:
+        #     await db.comments.update_one(
+        #         {'comment_id': comment['comment_id']},
+        #         {'$set': {'analysis.sentiment_analysis': overall_sentiment}}
+        #     )
+
+        print("Sentiment analysis completed.")    
+
         # Display the results in a DataFrame
-        df = pd.DataFrame(results)
-        df.to_excel("sentiment_analysis_results.xlsx", index=False)
-        print("Sentiment analysis results saved to sentiment_analysis_results.xlsx")
+        # df = pd.DataFrame(results)
+        # df.to_excel("sentiment_analysis_results.xlsx", index=False)
+        # print("Sentiment analysis results saved to sentiment_analysis_results.xlsx")
 
     asyncio.run(main())
