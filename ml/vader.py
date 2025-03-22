@@ -49,7 +49,7 @@ def extend_vader_for_malay(analyzer):
 DetectorFactory.seed = 0
 
 async def read_and_translate_comments():
-    comments_data = await db.comments.find({"comment_id": {"$gt": 100}}).to_list()
+    comments_data = await db.comments.find({"comment_id": {"$lt": 101}}).to_list()
     translated_comments = []
     for comment_data in comments_data:
         for comment in comment_data['comments']:
@@ -101,40 +101,49 @@ if __name__ == "__main__":
         # Read and translate comments from MongoDB
         comments = await read_and_translate_comments()
         
+        # Group comments by comment_id
+        grouped_comments = {}
+        for comment in comments:
+            comment_id = comment['comment_id']
+            if comment_id not in grouped_comments:
+                grouped_comments[comment_id] = []
+            grouped_comments[comment_id].append(comment)
+        
         # Preprocess comments and perform sentiment analysis
         results = []
-        overall_sentiment_scores = []
-        for comment in comments:
-            cleaned_comment = preprocess_text(comment['translated_comment'])
-            sentiment_scores = analyzer.polarity_scores(cleaned_comment)
-            
-            # Classify sentiment as Positive, Negative, or Neutral
-            if sentiment_scores['pos'] == 0 and sentiment_scores['neg'] == 0:
-                sentiment = 'Neutral'
-            elif sentiment_scores['pos'] > sentiment_scores['neg']:
-                sentiment = 'Positive'
-            elif sentiment_scores['neg'] > sentiment_scores['pos']:
-                sentiment = 'Negative'
-            else:
-                sentiment = 'Neutral'
-            
-            results.append({
-                'Original Comment': comment['original_comment'],
-                'Cleaned Comment': cleaned_comment,
-                'Compound Score': sentiment_scores['compound'],
-                'Positive Scores': sentiment_scores['pos'],
-                'Negative Scores': sentiment_scores['neg'],
-                'Sentiment': sentiment
-            })
+        for comment_id, comment_group in grouped_comments.items():
+            overall_sentiment_scores = []
+            for comment in comment_group:
+                cleaned_comment = preprocess_text(comment['translated_comment'])
+                sentiment_scores = analyzer.polarity_scores(cleaned_comment)
+                
+                # Classify sentiment as Positive, Negative, or Neutral
+                if sentiment_scores['pos'] == 0 and sentiment_scores['neg'] == 0:
+                    sentiment = 'Neutral'
+                elif sentiment_scores['pos'] > sentiment_scores['neg']:
+                    sentiment = 'Positive'
+                elif sentiment_scores['neg'] > sentiment_scores['pos']:
+                    sentiment = 'Negative'
+                else:
+                    sentiment = 'Neutral'
+                
+                results.append({
+                    'Original Comment': comment['original_comment'],
+                    'Cleaned Comment': cleaned_comment,
+                    'Compound Score': sentiment_scores['compound'],
+                    'Positive Scores': sentiment_scores['pos'],
+                    'Negative Scores': sentiment_scores['neg'],
+                    'Sentiment': sentiment
+                })
 
-            # Update the sentiment analysis result for each comment in the database
-            # await db.comments.update_one(
-            #     {'comment_id': comment['comment_id'], 'comments.comment_content': comment['original_comment']},
-            #     {'$set': {'comments.$.sentiment_analysis': sentiment}}
-            # )
+                # Update the sentiment analysis result for each comment in the database
+                await db.comments.update_one(
+                    {'comment_id': comment['comment_id'], 'comments.comment_content': comment['original_comment']},
+                    {'$set': {'comments.$.sentiment_analysis': sentiment}}
+                )
 
-            # Collect sentiment scores for overall analysis
-            overall_sentiment_scores.append(sentiment_scores['compound'])
+                # Collect sentiment scores for overall analysis
+                overall_sentiment_scores.append(sentiment_scores['compound'])
 
             # Calculate overall sentiment based on average compound score
             if overall_sentiment_scores:
@@ -147,17 +156,13 @@ if __name__ == "__main__":
                     overall_sentiment = 'Neutral'
             else:
                 overall_sentiment = 'Neutral'
-            
-            print(overall_sentiment_scores)
-            print(average_sentiment_score)
-            print("sent",overall_sentiment)
 
-        # Update the overall sentiment analysis result in the database
-        # for comment in comments:
-        #     await db.comments.update_one(
-        #         {'comment_id': comment['comment_id']},
-        #         {'$set': {'analysis.sentiment_analysis': overall_sentiment}}
-        #     )
+            # print(f"Comment ID: {comment_id}, Overall Sentiment: {overall_sentiment}")
+            # Update the overall sentiment analysis result in the database
+            # await db.comments.update_one(
+            #     {'comment_id': comment_id},
+            #     {'$set': {'analysis.sentiment_analysis': overall_sentiment}}
+            # )
 
         print("Sentiment analysis completed.")    
 

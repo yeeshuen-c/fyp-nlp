@@ -1,18 +1,18 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from motor.motor_asyncio import AsyncIOMotorClient
-from ..schemas import Post, Comment
+from ..schemas import Analysis, Engagement, Post, Comment
 from ..database import db
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 
 def get_user_id_filter(user_id: int) -> Dict[str, int]:
     if user_id in [1, 2, 3, 4, 5]:
-        return {"user_id": {"$in": [user_id, user_id + 5, user_id + 10]}}
+        return {"user_id": {"$in": [user_id, user_id + 5, user_id + 10]}, "deleted": {"$ne": 1}}
     return {"user_id": user_id}
 
 async def get_posts_by_user_id(user_id: int) -> List[Post]:
     user_id_filter = get_user_id_filter(user_id)
-    posts_data = await db.posts.find(user_id_filter).to_list(length=100)
+    posts_data = await db.posts.find(user_id_filter).sort("post_id", -1).to_list()
     posts = []
     for post in posts_data:
         if 'date' not in post or post['date'] == "No Date":
@@ -21,6 +21,8 @@ async def get_posts_by_user_id(user_id: int) -> List[Post]:
             post['date'] = post['date'].isoformat() if isinstance(post['date'], datetime) else post['date']
         post['date'] = post.get('date', "No Date") if post.get('date') is not None else "No Date"
         post['post_title'] = post.get('post_title', "")
+        post['batch'] = int(post['batch']) if isinstance(post['batch'], int) else int(post['batch']) if post['batch'].isdigit() else 0  # Ensure batch is an integer
+        post['content'] = post.get('content', "")
         posts.append(Post(**post))
     return posts
 
@@ -36,7 +38,14 @@ async def count_posts_by_user_id_group_by_scam_type(user_id: int) -> Dict[str, i
         {"$group": {"_id": "$analysis.scam_type", "count": {"$sum": 1}}}
     ]
     result = await db.posts.aggregate(pipeline).to_list(length=None)
-    return {item["_id"]: item["count"] for item in result}
+    
+    # Ensure keys and values are valid strings and integers
+    scam_type_counts = {}
+    for item in result:
+        scam_type = item["_id"] if item["_id"] is not None else "Unknown"
+        scam_type_counts[scam_type] = item["count"]
+    
+    return scam_type_counts
 
 async def count_posts_by_user_id_group_by_platform(user_id: int) -> Dict[str, int]:
     user_id_filter = get_user_id_filter(user_id)
@@ -84,7 +93,7 @@ async def count_posts_by_user_id_group_by_scam_type_and_framing(user_id: int) ->
     return scam_type_counts
 
 async def get_post_by_id(post_id: int) -> Post:
-    post_data = await db.posts.find_one({"post_id": post_id})
+    post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}})
     if post_data:
         post_data['date'] = post_data.get('date', "No Date")
         if post_data['date'] is None:
@@ -100,7 +109,7 @@ async def get_post_by_id(post_id: int) -> Post:
 
 async def get_comments_by_post_id(post_id: int) -> List[Comment]:
     # First, get the post's ObjectId using the integer post_id
-    post_data = await db.posts.find_one({"post_id": post_id})
+    post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}})
     if not post_data:
         return []
 
@@ -113,3 +122,106 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
         comment["post_id"] = post_id
         comments.append(Comment(**comment))
     return comments
+
+async def get_sentiment_analysis_by_user_id(user_id: int) -> float:
+    user_id_filter = get_user_id_filter(user_id)
+    
+    # Fetch all posts by user_id to get post_ids
+    posts = await db.posts.find(user_id_filter).to_list(length=None)
+    post_ids = [post['post_id'] for post in posts]
+    
+    sentiment_mapping = {"Positive": 1, "Neutral": 0.5, "Negative": 0}
+    sentiment_analysis = {}
+    
+    for post_id in post_ids:
+        comments = await get_comments_by_post_id(post_id)
+        
+        for comment in comments:
+            total_sentiment_score = 0
+            total_comments = 0
+            
+            for comment_content in comment.comments:
+                sentiment = getattr(comment_content, "sentiment_analysis", None)
+                if sentiment in sentiment_mapping:
+                    total_sentiment_score += sentiment_mapping[sentiment]
+                    total_comments += 1
+            
+            if total_comments > 0:
+                average_sentiment = (total_sentiment_score / total_comments) * 100
+                sentiment_analysis[comment.comment_id] = average_sentiment
+    
+    total_sentiment_score = 0
+    total_comments = 0
+    
+    for sentiment in sentiment_analysis.values():
+        total_sentiment_score += sentiment
+        total_comments += 1
+    
+    if total_comments > 0:
+        overall_average_sentiment = total_sentiment_score / total_comments
+    else:
+        overall_average_sentiment = 0
+    
+    return overall_average_sentiment
+
+async def add_new_post(post_content: str, user_id:int,post_title: str="",url: str = "") -> Post:
+    # Get the largest post_id from the database
+    largest_post = await db.posts.find_one(sort=[("post_id", -1)])
+    new_post_id = largest_post["post_id"] + 1 if largest_post else 1
+
+    largest_batch = await db.posts.find_one(sort=[("batch", -1)])
+    new_batch_id = largest_batch["batch"] + 1 if largest_batch else 1
+
+    # Create the new post document
+    new_post = {
+        "post_id": new_post_id,
+        "post_title": post_title,
+        "post_content": post_content,
+        "date": datetime.now(timezone.utc).isoformat(),  # Convert datetime to string
+        "post_url": url,
+        "user_id": user_id,
+        "content": post_content,  # Add content field
+        "engagement": Engagement().dict(),  # Ensure correct format
+        "analysis": Analysis().dict(),  # Ensure correct format
+        "batch": new_batch_id
+    }
+
+    # Insert the new post into the database
+    await db.posts.insert_one(new_post)
+
+    return Post(**new_post)
+
+async def update_post(post_id: int, user_id: int, post_title: Optional[str] = None, post_content: Optional[str] = None, url: Optional[str] = None) -> Optional[Post]:
+    update_data = {}
+    if post_title is not None:
+        update_data["post_title"] = post_title
+    if post_content is not None:
+        update_data["post_content"] = post_content
+    if url is not None:
+        update_data["post_url"] = url
+
+    if not update_data:
+        raise ValueError("No data provided to update")
+
+    result = await db.posts.find_one_and_update(
+        {"post_id": post_id, "user_id": user_id},
+        {"$set": update_data},
+        return_document=True
+    )
+
+    if result is None:
+        return None
+
+    return Post(**result)
+
+async def mark_post_as_deleted(post_id: int, user_id: int) -> Optional[Post]:
+    result = await db.posts.find_one_and_update(
+        {"post_id": post_id, "user_id": user_id},
+        {"$set": {"deleted": 1}},
+        return_document=True
+    )
+
+    if result is None:
+        return None
+
+    return Post(**result)

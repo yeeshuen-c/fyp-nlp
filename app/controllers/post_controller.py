@@ -1,7 +1,7 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from fastapi import HTTPException
 from ..schemas import Post, Comment
-from ..services.post_service import count_posts_by_user_id_group_by_scam_type_and_framing, get_comments_by_post_id, get_posts_by_user_id, count_posts_by_user_id, count_posts_by_user_id_group_by_scam_type, count_posts_by_user_id_group_by_platform,get_post_by_id
+from ..services.post_service import add_new_post, count_posts_by_user_id_group_by_scam_type_and_framing, get_comments_by_post_id, get_posts_by_user_id, count_posts_by_user_id, count_posts_by_user_id_group_by_scam_type, count_posts_by_user_id_group_by_platform,get_post_by_id, get_sentiment_analysis_by_user_id, mark_post_as_deleted, update_post
 
 async def fetch_posts_by_user_id(user_id: int) -> List[Post]:
     posts = await get_posts_by_user_id(user_id)
@@ -29,3 +29,21 @@ async def fetch_post_by_id(post_id: int) -> Post:
 
 async def fetch_comments_by_post_id(post_id: int) -> List[Comment]:
     return await get_comments_by_post_id(post_id)
+
+async def fetch_sentiment_analysis_by_user_id(user_id: int) -> float:
+    return await get_sentiment_analysis_by_user_id(user_id)
+
+async def create_new_post(post_content: str, user_id:int,post_title: str="",url: str = "") -> Post:
+    return await add_new_post(post_title, post_content, user_id,url)
+
+async def update_post_controller(post_id: int, user_id: int, post_title: Optional[str] = None, post_content: Optional[str] = None, url: Optional[str] = None) -> Post:
+    updated_post = await update_post(post_id, user_id, post_title, post_content, url)
+    if updated_post is None:
+        raise ValueError("Post not found or user not authorized")
+    return updated_post
+
+async def mark_post_as_deleted_controller(post_id: int, user_id: int) -> Post:
+    deleted_post = await mark_post_as_deleted(post_id, user_id)
+    if deleted_post is None:
+        raise ValueError("Post not found or user not authorized")
+    return deleted_post

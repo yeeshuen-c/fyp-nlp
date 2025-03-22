@@ -15,9 +15,9 @@ class Engagement(BaseModel):
         return value
 
 class Analysis(BaseModel):
-    scam_framing: str
-    scam_or_not: Optional[str]
-    scam_type: str
+    scam_framing: Optional[str]="None"
+    scam_or_not: Optional[str]="None"
+    scam_type: Optional[str]="None"
 
 # class MediaUrl(BaseModel):
 #     url: str
@@ -32,10 +32,10 @@ class Post(BaseModel):
     post_title: str = ""
     date: str
     content: str
-    engagement: Engagement
-    analysis: Analysis
+    engagement: Optional[Engagement]
+    analysis: Optional[Analysis]
     user_id: int
-    batch: int
+    batch: Optional[int]=0
 
     class Config:
         populate_by_name = True
@@ -59,9 +59,10 @@ class User(BaseModel):
 
 class CommentContent(BaseModel):
     comment_content: str
+    sentiment_analysis: Optional[str] = ""
 
 class CommentAnalysis(BaseModel):
-    sentiment_analysis: Optional[str]
+    sentiment_analysis: Optional[str] =""
 
 class Comment(BaseModel):
     comment_id: int
