@@ -33,8 +33,9 @@ async def fetch_comments_by_post_id(post_id: int) -> List[Comment]:
 async def fetch_sentiment_analysis_by_user_id(user_id: int) -> float:
     return await get_sentiment_analysis_by_user_id(user_id)
 
-async def create_new_post(post_content: str, user_id:int,post_title: str="",url: str = "") -> Post:
-    return await add_new_post(post_title, post_content, user_id,url)
+async def create_new_post(post_title: Optional[str], post_content: str, user_id: int, url: Optional[str]) -> Post:
+    new_post = await add_new_post(post_title, post_content, user_id, url)
+    return new_post
 
 async def update_post_controller(post_id: int, user_id: int, post_title: Optional[str] = None, post_content: Optional[str] = None, url: Optional[str] = None) -> Post:
     updated_post = await update_post(post_id, user_id, post_title, post_content, url)

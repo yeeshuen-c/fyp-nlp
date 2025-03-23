@@ -29,7 +29,7 @@ class Analysis(BaseModel):
 class Post(BaseModel):
     post_id: int
     post_url: Optional[str] = ""
-    post_title: str = ""
+    post_title: Optional[str] = ""
     date: str
     content: str
     engagement: Optional[Engagement]

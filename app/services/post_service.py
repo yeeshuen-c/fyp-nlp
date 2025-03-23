@@ -1,5 +1,6 @@
 from typing import List, Dict, Optional
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 from ..schemas import Analysis, Engagement, Post, Comment
 from ..database import db
 from datetime import datetime, timezone
@@ -93,7 +94,8 @@ async def count_posts_by_user_id_group_by_scam_type_and_framing(user_id: int) ->
     return scam_type_counts
 
 async def get_post_by_id(post_id: int) -> Post:
-    post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}})
+    post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}}, hint="_id_", max_time_ms=5000)
+    print(f"Fetched data from DB: {post_data}")  # Debugging
     if post_data:
         post_data['date'] = post_data.get('date', "No Date")
         if post_data['date'] is None:
@@ -164,7 +166,7 @@ async def get_sentiment_analysis_by_user_id(user_id: int) -> float:
     
     return overall_average_sentiment
 
-async def add_new_post(post_content: str, user_id:int,post_title: str="",url: str = "") -> Post:
+async def add_new_post(post_title: Optional[str], post_content: str, user_id: int, url: Optional[str]) -> Post:
     # Get the largest post_id from the database
     largest_post = await db.posts.find_one(sort=[("post_id", -1)])
     new_post_id = largest_post["post_id"] + 1 if largest_post else 1
@@ -199,6 +201,7 @@ async def update_post(post_id: int, user_id: int, post_title: Optional[str] = No
         update_data["post_content"] = post_content
     if url is not None:
         update_data["post_url"] = url
+    print(update_data)
 
     if not update_data:
         raise ValueError("No data provided to update")
@@ -206,8 +209,10 @@ async def update_post(post_id: int, user_id: int, post_title: Optional[str] = No
     result = await db.posts.find_one_and_update(
         {"post_id": post_id, "user_id": user_id},
         {"$set": update_data},
-        return_document=True
+        return_document=ReturnDocument.AFTER
     )
+
+    print(f"Updated document: {result}")  # Debugging
 
     if result is None:
         return None
@@ -218,7 +223,7 @@ async def mark_post_as_deleted(post_id: int, user_id: int) -> Optional[Post]:
     result = await db.posts.find_one_and_update(
         {"post_id": post_id, "user_id": user_id},
         {"$set": {"deleted": 1}},
-        return_document=True
+        return_document=ReturnDocument.AFTER
     )
 
     if result is None:
