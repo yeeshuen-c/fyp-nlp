@@ -6,8 +6,8 @@ from ..controllers.post_controller import create_new_post, fetch_comments_by_pos
 router = APIRouter()
 
 @router.get("/posts/user/{user_id}", response_model=List[Post])
-async def get_posts(user_id: int):
-    return await fetch_posts_by_user_id(user_id)
+async def get_posts(user_id: int, platform: Optional[str] = Query(None), scam_framing: Optional[str] = Query(None), scam_type: Optional[str] = Query(None)):
+    return await fetch_posts_by_user_id(user_id, platform, scam_framing, scam_type)
 
 @router.get("/posts/user/{user_id}/count", response_model=int)
 async def get_post_count(user_id: int):

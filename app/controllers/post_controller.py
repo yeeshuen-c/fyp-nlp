@@ -3,11 +3,8 @@ from fastapi import HTTPException
 from ..schemas import Post, Comment
 from ..services.post_service import add_new_post, count_posts_by_user_id_group_by_scam_type_and_framing, get_comments_by_post_id, get_posts_by_user_id, count_posts_by_user_id, count_posts_by_user_id_group_by_scam_type, count_posts_by_user_id_group_by_platform,get_post_by_id, get_sentiment_analysis_by_user_id, mark_post_as_deleted, update_post
 
-async def fetch_posts_by_user_id(user_id: int) -> List[Post]:
-    posts = await get_posts_by_user_id(user_id)
-    if not posts:
-        raise HTTPException(status_code=404, detail="Posts not found")
-    return posts
+async def fetch_posts_by_user_id(user_id: int, platform: Optional[str] = None, scam_framing: Optional[str] = None, scam_type: Optional[str] = None) -> List[Post]:
+    return await get_posts_by_user_id(user_id, platform, scam_framing, scam_type)
 
 async def fetch_post_count_by_user_id(user_id: int) -> int:
     count = await count_posts_by_user_id(user_id)

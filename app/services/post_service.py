@@ -6,14 +6,26 @@ from ..database import db
 from datetime import datetime, timezone
 from bson import ObjectId
 
-def get_user_id_filter(user_id: int) -> Dict[str, int]:
-    if user_id in [1, 2, 3, 4, 5]:
-        return {"user_id": {"$in": [user_id, user_id + 5, user_id + 10]}, "deleted": {"$ne": 1}}
-    return {"user_id": user_id}
+def get_user_id_filter(user_id: int, platform: Optional[str] = None) -> Dict[str, int]:
+    if platform == "facebook":
+        return {"user_id": {"$in": list(range(11, 16))}, "deleted": {"$ne": 1}}
+    elif platform == "twitter":
+        return {"user_id": {"$in": list(range(6, 11))}, "deleted": {"$ne": 1}}
+    elif platform == "official website":
+        return {"user_id": {"$in": list(range(1, 6))}, "deleted": {"$ne": 1}}
+    else:
+         if user_id in [1, 2, 3, 4, 5]:
+            return {"user_id": {"$in": [user_id, user_id + 5, user_id + 10]}, "deleted": {"$ne": 1}}
 
-async def get_posts_by_user_id(user_id: int) -> List[Post]:
-    user_id_filter = get_user_id_filter(user_id)
-    posts_data = await db.posts.find(user_id_filter).sort("post_id", -1).to_list()
+async def get_posts_by_user_id(user_id: int, platform: Optional[str] = None, scam_framing: Optional[str] = None, scam_type: Optional[str] = None) -> List[Post]:
+    user_id_filter = get_user_id_filter(user_id, platform)
+    
+    if scam_framing:
+        user_id_filter["analysis.scam_framing"] = scam_framing
+    if scam_type:
+        user_id_filter["analysis.scam_type"] = scam_type
+
+    posts_data = await db.posts.find(user_id_filter).sort("post_id", -1).to_list()  # Sort by post_id in descending order
     posts = []
     for post in posts_data:
         if 'date' not in post or post['date'] == "No Date":
@@ -23,7 +35,7 @@ async def get_posts_by_user_id(user_id: int) -> List[Post]:
         post['date'] = post.get('date', "No Date") if post.get('date') is not None else "No Date"
         post['post_title'] = post.get('post_title', "")
         post['batch'] = int(post['batch']) if isinstance(post['batch'], int) else int(post['batch']) if post['batch'].isdigit() else 0  # Ensure batch is an integer
-        post['content'] = post.get('content', "")
+        post['content'] = post.get('content', "")  # Ensure content is set
         posts.append(Post(**post))
     return posts
 
