@@ -7,12 +7,12 @@ from datetime import datetime, timezone
 from bson import ObjectId
 
 def get_user_id_filter(user_id: int, platform: Optional[str] = None) -> Dict[str, int]:
-    if platform == "facebook":
+    if platform == "Facebook":
         return {"user_id": {"$in": list(range(11, 16))}, "deleted": {"$ne": 1}}
-    elif platform == "twitter":
+    elif platform == "Twitter":
         return {"user_id": {"$in": list(range(6, 11))}, "deleted": {"$ne": 1}}
-    elif platform == "official website":
-        return {"user_id": {"$in": list(range(1, 6))}, "deleted": {"$ne": 1}}
+    elif platform == "Official Website":
+        return {"user_id": user_id, "deleted": {"$ne": 1}}
     else:
          if user_id in [1, 2, 3, 4, 5]:
             return {"user_id": {"$in": [user_id, user_id + 5, user_id + 10]}, "deleted": {"$ne": 1}}
@@ -24,6 +24,8 @@ async def get_posts_by_user_id(user_id: int, platform: Optional[str] = None, sca
         user_id_filter["analysis.scam_framing"] = scam_framing
     if scam_type:
         user_id_filter["analysis.scam_type"] = scam_type
+
+    print(user_id_filter, platform)    
 
     posts_data = await db.posts.find(user_id_filter).sort("post_id", -1).to_list()  # Sort by post_id in descending order
     posts = []
@@ -190,11 +192,10 @@ async def add_new_post(post_title: Optional[str], post_content: str, user_id: in
     new_post = {
         "post_id": new_post_id,
         "post_title": post_title,
-        "post_content": post_content,
+        "content": post_content,
         "date": datetime.now(timezone.utc).isoformat(),  # Convert datetime to string
         "post_url": url,
         "user_id": user_id,
-        "content": post_content,  # Add content field
         "engagement": Engagement().dict(),  # Ensure correct format
         "analysis": Analysis().dict(),  # Ensure correct format
         "batch": new_batch_id
@@ -210,7 +211,7 @@ async def update_post(post_id: int, user_id: int, post_title: Optional[str] = No
     if post_title is not None:
         update_data["post_title"] = post_title
     if post_content is not None:
-        update_data["post_content"] = post_content
+        update_data["content"] = post_content
     if url is not None:
         update_data["post_url"] = url
     print(update_data)
