@@ -3,3 +3,4 @@ venv/
 .env
 command.txt
 sentiment_analysis_results.xlsx
+*.pkl
