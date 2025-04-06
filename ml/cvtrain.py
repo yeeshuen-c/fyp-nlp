@@ -9,6 +9,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from app.database import db
 from ml.preprocessing import clean_text, fit_vectorizer, transform_text
 import asyncio
+from sklearn.preprocessing import MinMaxScaler
 
 # Fetch data from MongoDB
 async def get_all_posts():
@@ -40,6 +41,10 @@ def main():
     vectorizer = fit_vectorizer(texts)
     X_vec = transform_text(texts)
 
+    # scaler for bert vector 
+    scaler = MinMaxScaler()
+    X_vec = scaler.fit_transform(X_vec)
+
     # Initialize models
     models = {
         "SVM": SVC(kernel="linear", probability=True),
@@ -52,7 +57,7 @@ def main():
     skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
     # Open a file to save the output
-    output_file = "cv_results.txt"
+    output_file = "cv_bert_pca.txt"
     with open(output_file, "w") as f:
         # Perform cross-validation
         for model_name, model in models.items():
