@@ -2,7 +2,9 @@ import joblib
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import (
@@ -39,7 +41,7 @@ def main():
     texts, labels = asyncio.run(fetch_and_preprocess_data())
 
     # Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(texts, labels, test_size=0.2, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(texts, labels, test_size=0.2, random_state=42, stratify=labels)
 
     # Vectorization
     vectorizer = fit_vectorizer(X_train)
@@ -55,46 +57,63 @@ def main():
     knn_model = KNeighborsClassifier(n_neighbors=3)
     knn_model.fit(X_train_vec, y_train)
     joblib.dump(knn_model, "ml/knn_model.pkl")
+    # Train Logistic Regression
+    lr_model = LogisticRegression(max_iter=1000)
+    lr_model.fit(X_train_vec, y_train)
+
+    # Train Naive Bayes
+    nb_model = MultinomialNB()
+    nb_model.fit(X_train_vec, y_train)
 
     # Predictions
     svm_preds = svm_model.predict(X_test_vec)
     knn_preds = knn_model.predict(X_test_vec)
+    lr_preds = lr_model.predict(X_test_vec)
+    nb_preds = nb_model.predict(X_test_vec)
 
-    # Probabilities for ROC curve
-    svm_probs = svm_model.predict_proba(X_test_vec)[:, 1]
-    knn_probs = knn_model.predict_proba(X_test_vec)[:, 1]
+    # # Probabilities for ROC curve
+    # svm_probs = svm_model.predict_proba(X_test_vec)[:, 1]
+    # knn_probs = knn_model.predict_proba(X_test_vec)[:, 1]
+    # # Metrics
+    # svm_acc = accuracy_score(y_test, svm_preds)
+    # svm_report = classification_report(y_test, svm_preds, output_dict=True)
+    # svm_conf_matrix = confusion_matrix(y_test, svm_preds).tolist()
+    # # # Save metrics
+    # # metrics = {
+    # #     "svm": {"accuracy": svm_acc, "report": svm_report, "confusion_matrix": svm_conf_matrix},
+    # #     "knn": {"accuracy": knn_acc, "report": knn_report, "confusion_matrix": knn_conf_matrix}
+    # # }
+    # # joblib.dump(metrics, "ml/metrics.pkl")
+
+    # # Print metrics to the terminal
+    # print("SVM Metrics:")
+    # print(f"Accuracy: {svm_acc}")
+    # print("Classification Report:")
+    # for label, report in svm_report.items():
+    #     print(f"{label}: {report}")
+    # print("Confusion Matrix:")
+    # print(svm_conf_matrix)
 
     # Metrics
-    svm_acc = accuracy_score(y_test, svm_preds)
-    knn_acc = accuracy_score(y_test, knn_preds)
-    svm_report = classification_report(y_test, svm_preds, output_dict=True)
-    knn_report = classification_report(y_test, knn_preds, output_dict=True)
-    svm_conf_matrix = confusion_matrix(y_test, svm_preds).tolist()
-    knn_conf_matrix = confusion_matrix(y_test, knn_preds).tolist()
+    models = {
+        "SVM": (svm_model, svm_preds),
+        "KNN": (knn_model, knn_preds),
+        "Logistic Regression": (lr_model, lr_preds),
+        "Naive Bayes": (nb_model, nb_preds),
+    }
 
-    # # Save metrics
-    # metrics = {
-    #     "svm": {"accuracy": svm_acc, "report": svm_report, "confusion_matrix": svm_conf_matrix},
-    #     "knn": {"accuracy": knn_acc, "report": knn_report, "confusion_matrix": knn_conf_matrix}
-    # }
-    # joblib.dump(metrics, "ml/metrics.pkl")
+    for model_name, (model, preds) in models.items():
+        acc = accuracy_score(y_test, preds)
+        report = classification_report(y_test, preds, output_dict=True)
+        conf_matrix = confusion_matrix(y_test, preds).tolist()
 
-    # Print metrics to the terminal
-    print("SVM Metrics:")
-    print(f"Accuracy: {svm_acc}")
-    print("Classification Report:")
-    for label, report in svm_report.items():
-        print(f"{label}: {report}")
-    print("Confusion Matrix:")
-    print(svm_conf_matrix)
-
-    print("\nKNN Metrics:")
-    print(f"Accuracy: {knn_acc}")
-    print("Classification Report:")
-    for label, report in knn_report.items():
-        print(f"{label}: {report}")
-    print("Confusion Matrix:")
-    print(knn_conf_matrix)
+        print(f"\n{model_name} Metrics:")
+        print(f"Accuracy: {acc}")
+        print("Classification Report:")
+        for label, metrics in report.items():
+            print(f"{label}: {metrics}")
+        print("Confusion Matrix:")
+        print(conf_matrix)
 
     # ROC Curve
     # fpr_svm, tpr_svm, _ = roc_curve(y_test, svm_probs)
