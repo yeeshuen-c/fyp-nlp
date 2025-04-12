@@ -139,46 +139,82 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
         comments.append(Comment(**comment))
     return comments
 
-async def get_sentiment_analysis_by_user_id(user_id: int) -> float:
+# async def get_sentiment_analysis_by_user_id(user_id: int) -> float:
+#     user_id_filter = get_user_id_filter(user_id)
+    
+#     # Fetch all posts by user_id to get post_ids
+#     posts = await db.posts.find(user_id_filter).to_list(length=None)
+#     post_ids = [post['post_id'] for post in posts]
+    
+#     sentiment_mapping = {"Positive": 1, "Neutral": 0.5, "Negative": 0}
+#     sentiment_analysis = {}
+    
+#     for post_id in post_ids:
+#         comments = await get_comments_by_post_id(post_id)
+        
+#         for comment in comments:
+#             total_sentiment_score = 0
+#             total_comments = 0
+            
+#             for comment_content in comment.comments:
+#                 sentiment = getattr(comment_content, "sentiment_analysis", None)
+#                 if sentiment in sentiment_mapping:
+#                     total_sentiment_score += sentiment_mapping[sentiment]
+#                     total_comments += 1
+            
+#             if total_comments > 0:
+#                 average_sentiment = (total_sentiment_score / total_comments) * 100
+#                 sentiment_analysis[comment.comment_id] = average_sentiment
+    
+#     total_sentiment_score = 0
+#     total_comments = 0
+    
+#     for sentiment in sentiment_analysis.values():
+#         total_sentiment_score += sentiment
+#         total_comments += 1
+    
+#     if total_comments > 0:
+#         overall_average_sentiment = total_sentiment_score / total_comments
+#     else:
+#         overall_average_sentiment = 0
+    
+#     return overall_average_sentiment
+
+async def get_sentiment_analysis_by_user_id(user_id: int) -> Dict[str, float]:
+    """
+    Get sentiment analysis for a user_id and return the percentage of positive, negative, and neutral sentiments.
+    """
     user_id_filter = get_user_id_filter(user_id)
     
     # Fetch all posts by user_id to get post_ids
     posts = await db.posts.find(user_id_filter).to_list(length=None)
     post_ids = [post['post_id'] for post in posts]
     
-    sentiment_mapping = {"Positive": 1, "Neutral": 0.5, "Negative": 0}
-    sentiment_analysis = {}
+    sentiment_mapping = {"Positive": "positive", "Neutral": "neutral", "Negative": "negative"}
+    sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
+    total_comments = 0
     
     for post_id in post_ids:
         comments = await get_comments_by_post_id(post_id)
         
         for comment in comments:
-            total_sentiment_score = 0
-            total_comments = 0
-            
             for comment_content in comment.comments:
                 sentiment = getattr(comment_content, "sentiment_analysis", None)
                 if sentiment in sentiment_mapping:
-                    total_sentiment_score += sentiment_mapping[sentiment]
+                    sentiment_counts[sentiment_mapping[sentiment]] += 1
                     total_comments += 1
-            
-            if total_comments > 0:
-                average_sentiment = (total_sentiment_score / total_comments) * 100
-                sentiment_analysis[comment.comment_id] = average_sentiment
     
-    total_sentiment_score = 0
-    total_comments = 0
-    
-    for sentiment in sentiment_analysis.values():
-        total_sentiment_score += sentiment
-        total_comments += 1
-    
+    # Calculate percentages
     if total_comments > 0:
-        overall_average_sentiment = total_sentiment_score / total_comments
+        sentiment_percentages = {
+            "positive": (sentiment_counts["positive"] / total_comments) * 100,
+            "neutral": (sentiment_counts["neutral"] / total_comments) * 100,
+            "negative": (sentiment_counts["negative"] / total_comments) * 100,
+        }
     else:
-        overall_average_sentiment = 0
+        sentiment_percentages = {"positive": 0, "neutral": 0, "negative": 0}
     
-    return overall_average_sentiment
+    return sentiment_percentages
 
 async def add_new_post(post_title: Optional[str], post_content: str, user_id: int, url: Optional[str]) -> Post:
     # Get the largest post_id from the database
@@ -243,3 +279,22 @@ async def mark_post_as_deleted(post_id: int, user_id: int) -> Optional[Post]:
         return None
 
     return Post(**result)
+
+async def count_posts_by_user_id_group_by_scam_framing(user_id: int) -> Dict[str, int]:
+    """
+    Count posts grouped by scam_framing for a given user_id.
+    """
+    user_id_filter = get_user_id_filter(user_id)
+    pipeline = [
+        {"$match": user_id_filter},
+        {"$group": {"_id": "$analysis.scam_framing", "count": {"$sum": 1}}}
+    ]
+    result = await db.posts.aggregate(pipeline).to_list(length=None)
+    
+    # Ensure keys and values are valid strings and integers
+    scam_framing_counts = {}
+    for item in result:
+        scam_framing = item["_id"] if item["_id"] is not None else "Unknown"
+        scam_framing_counts[scam_framing] = item["count"]
+    
+    return scam_framing_counts

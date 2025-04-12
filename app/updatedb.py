@@ -101,7 +101,37 @@ def compare_excel_files():
     output_df.to_excel(output_file, index=False)
     print(f"Differences exported successfully to {output_file}")
 
+async def count_documents_by_user_id():
+    """
+    Count documents in the database based on user_id ranges and output the counts.
+    """
+    # Connect to MongoDB
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+
+    # Define ranges and labels
+    ranges = {
+        "official website": {"min": 1, "max": 5},
+        "twitter": {"min": 6, "max": 10},
+        "facebook": {"min": 11, "max": 15},
+    }
+
+    # Initialize counts
+    counts = {label: 0 for label in ranges}
+
+    # Iterate over ranges and count documents
+    for label, range_values in ranges.items():
+        count = await db.posts.count_documents({
+            "user_id": {"$gte": range_values["min"], "$lte": range_values["max"]}
+        })
+        counts[label] = count
+
+    # Print the counts
+    for label, count in counts.items():
+        print(f"{label.capitalize()} count: {count}")
+
 if __name__ == "__main__":
     # asyncio.run(update_user_passwords())
     # asyncio.run(export_post_labelling())
-    compare_excel_files() 
+    # compare_excel_files()
+    asyncio.run(count_documents_by_user_id())

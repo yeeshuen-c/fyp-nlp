@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException, Query
 from typing import List, Dict, Optional
 from ..schemas import Post, Comment
-from ..controllers.post_controller import create_new_post, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_sentiment_analysis_by_user_id, mark_post_as_deleted_controller, update_post_controller
+from ..controllers.post_controller import create_new_post, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_sentiment_analysis_by_user_id, get_scam_framing_counts, mark_post_as_deleted_controller, update_post_controller
 
 router = APIRouter()
 
@@ -29,7 +29,7 @@ async def get_post(post_id: int):
 async def get_comments(post_id: int):
     return await fetch_comments_by_post_id(post_id)
 
-@router.get("/posts/user/{user_id}/sentiment_analysis", response_model=float)
+@router.get("/posts/user/{user_id}/sentiment_analysis", response_model=Dict[str, float])
 async def get_sentiment_analysis(user_id: int):
     return await fetch_sentiment_analysis_by_user_id(user_id)
 
@@ -71,3 +71,10 @@ async def delete_post_endpoint(post_id: int, user_id: int = Query(...)):
         return deleted_post
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/posts/{user_id}/scam_framing_counts", response_model=Dict[str, int])
+async def get_scam_framing_counts_route(user_id: int):
+    """
+    API endpoint to get scam_framing counts for a given user_id.
+    """
+    return await get_scam_framing_counts(user_id)

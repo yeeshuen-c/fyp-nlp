@@ -1,5 +1,6 @@
 import joblib
 import numpy as np
+import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.naive_bayes import MultinomialNB
@@ -64,9 +65,11 @@ def main():
             f.write(f"\n{model_name} Cross-Validation Results:\n")
             fold = 1
             accuracies = []
+            all_misclassified = []  # To store misclassified data for all folds
             for train_index, test_index in skf.split(X_vec, labels):
                 X_train, X_test = X_vec[train_index], X_vec[test_index]
                 y_train, y_test = np.array(labels)[train_index], np.array(labels)[test_index]
+                texts_test = np.array(texts)[test_index]  # Get the corresponding test texts
 
                 # Train the model
                 model.fit(X_train, y_train)
@@ -87,10 +90,28 @@ def main():
                     f.write(f"{label}: {metrics}\n")
                 f.write("Confusion Matrix:\n")
                 f.write(f"{conf_matrix}\n")
+
+                # Collect misclassified data
+                misclassified = []
+                for i in range(len(y_test)):
+                    if preds[i] != y_test[i]:
+                        misclassified.append({
+                            "Text": texts_test[i],
+                            "True Label": y_test[i],
+                            "Predicted Label": preds[i]
+                        })
+                all_misclassified.extend(misclassified)
                 fold += 1
 
             # Write average accuracy across all folds
             f.write(f"\nAverage Accuracy for {model_name}: {np.mean(accuracies):.4f}\n")
+
+            # Save misclassified data to an Excel file
+            if all_misclassified:
+                df_misclassified = pd.DataFrame(all_misclassified)
+                excel_file = f"excel/{model_name}_misclassified.xlsx"
+                df_misclassified.to_excel(excel_file, index=False)
+                print(f"Misclassified data for {model_name} saved to {excel_file}")
 
     print(f"Cross-validation results saved to {output_file}")
 
