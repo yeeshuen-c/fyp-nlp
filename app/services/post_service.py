@@ -18,26 +18,42 @@ def get_user_id_filter(user_id: int, platform: Optional[str] = None) -> Dict[str
             return {"user_id": {"$in": [user_id, user_id + 5, user_id + 10]}, "deleted": {"$ne": 1}}
 
 async def get_posts_by_user_id(user_id: int, platform: Optional[str] = None, scam_framing: Optional[str] = None, scam_type: Optional[str] = None) -> List[Post]:
+    """
+    Retrieve posts by user_id with optional filters for platform, scam_framing, and scam_type.
+    Ensure engagement.comment_count2 is used if it exists.
+    """
     user_id_filter = get_user_id_filter(user_id, platform)
-    
+
     if scam_framing:
         user_id_filter["analysis.scam_framing"] = scam_framing
     if scam_type:
         user_id_filter["analysis.scam_type"] = scam_type
 
-    print(user_id_filter, platform)    
+    print(user_id_filter, platform)
 
-    posts_data = await db.posts.find(user_id_filter).sort("post_id", -1).to_list()  # Sort by post_id in descending order
+    # Fetch posts from the database
+    posts_data = await db.posts.find(user_id_filter).sort("post_id", -1).to_list(length=None)  # Sort by post_id in descending order
     posts = []
     for post in posts_data:
+        # Ensure date is properly formatted
         if 'date' not in post or post['date'] == "No Date":
             post['date'] = "No Date"
         else:
             post['date'] = post['date'].isoformat() if isinstance(post['date'], datetime) else post['date']
         post['date'] = post.get('date', "No Date") if post.get('date') is not None else "No Date"
+
+        # Ensure other fields are set
         post['post_title'] = post.get('post_title', "")
         post['batch'] = int(post['batch']) if isinstance(post['batch'], int) else int(post['batch']) if post['batch'].isdigit() else 0  # Ensure batch is an integer
         post['content'] = post.get('content', "")  # Ensure content is set
+
+        # Use comment_count2 if it exists, otherwise fall back to comment_count
+        engagement = post.get('engagement', {})
+        if 'comment_count2' in engagement:
+            engagement['comment_count'] = engagement['comment_count2']
+        post['engagement'] = engagement
+
+        # Append the processed post to the list
         posts.append(Post(**post))
     return posts
 
@@ -108,6 +124,33 @@ async def count_posts_by_user_id_group_by_scam_type_and_framing(user_id: int) ->
     return scam_type_counts
 
 async def get_post_by_id(post_id: int) -> Post:
+    """
+    Retrieve a post by its post_id and ensure engagement.comment_count2 is used if it exists.
+    """
+    post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}}, hint="_id_", max_time_ms=5000)
+    print(f"Fetched data from DB: {post_data}")  # Debugging
+    if post_data:
+        # Ensure date is properly formatted
+        post_data['date'] = post_data.get('date', "No Date")
+        if post_data['date'] is None:
+            post_data['date'] = "No Date"
+        elif isinstance(post_data['date'], datetime):
+            post_data['date'] = post_data['date'].isoformat()
+
+        # Ensure other fields are set
+        post_data['post_title'] = post_data.get('post_title', "")
+        post_data['image'] = post_data.get('image', {})
+        post_data['media'] = post_data.get('media', [])
+        post_data['media_url'] = post_data.get('media_url', [])
+
+        # Use comment_count2 if it exists, otherwise fall back to comment_count
+        engagement = post_data.get('engagement', {})
+        if 'comment_count2' in engagement:
+            engagement['comment_count'] = engagement['comment_count2']
+        post_data['engagement'] = engagement
+
+        return Post(**post_data)
+    return None 
     post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}}, hint="_id_", max_time_ms=5000)
     print(f"Fetched data from DB: {post_data}")  # Debugging
     if post_data:

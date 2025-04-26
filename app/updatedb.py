@@ -130,8 +130,42 @@ async def count_documents_by_user_id():
     for label, count in counts.items():
         print(f"{label.capitalize()} count: {count}")
 
+async def update_comment_counts_for_posts():
+    """
+    Update the engagement.comment_count field in the posts collection
+    for user_id between 6 and 10 based on the actual comment count
+    from the comments collection.
+    """
+    # Connect to MongoDB
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+
+    # Find posts with user_id between 6 and 10
+    posts = await db.posts.find({"user_id": {"$gte": 6, "$lte": 10}}).to_list(length=None)
+
+    for post in posts:
+        post_id = post.get("_id")
+        if not post_id:
+            continue
+
+        # Find all comments linked to the current post_id
+        comments = await db.comments.find({"post_id": post_id}).to_list(length=None)
+
+        # Calculate the total number of comment_content entries across all comments documents
+        total_comment_content_count = sum(len(comment.get("comments", [])) for comment in comments)
+
+        # Update the engagement.comment_count2 field in the posts collection
+        await db.posts.update_one(
+            {"_id": post_id},
+            {"$set": {"engagement.comment_count2": total_comment_content_count}}
+        )
+
+        print(f"Updated post_id {post_id} with comment_count {total_comment_content_count}")
+
+    print("Comment counts updated successfully.")
+
 if __name__ == "__main__":
     # asyncio.run(update_user_passwords())
     # asyncio.run(export_post_labelling())
     # compare_excel_files()
-    asyncio.run(count_documents_by_user_id())
+    asyncio.run(update_comment_counts_for_posts())

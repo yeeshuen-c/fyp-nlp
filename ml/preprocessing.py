@@ -46,53 +46,53 @@ def clean_text(text):
     tokens = [lemmatizer.lemmatize(word) for word in tokens if word not in stop_words and word.isalpha()]
     return " ".join(tokens)
 
-# def fit_vectorizer(texts):
-#     """Fit and save a TF-IDF vectorizer"""
-#     vectorizer = TfidfVectorizer(max_features=2000, norm='l2')
-#     vectorizer.fit(texts)
-#     joblib.dump(vectorizer, "ml/vectorizer.pkl")
-#     return vectorizer
-
-# def transform_text(texts):
-#     """Load vectorizer and transform text"""
-#     vectorizer = joblib.load("ml/vectorizer.pkl")
-#     return vectorizer.transform(texts)
-
-def mean_pooling(model_output, attention_mask):
-    """Apply mean pooling to BERT output"""
-    token_embeddings = model_output[0]  # First element of output contains embeddings
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size())
-    sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
-    sum_mask = input_mask_expanded.sum(1).clamp(min=1e-9)
-    return sum_embeddings / sum_mask
-
 def fit_vectorizer(texts):
-    """Initialize and save BERT tokenizer and model (no fitting like TF-IDF)"""
-    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-    model = BertModel.from_pretrained("bert-base-uncased")
-    model.eval()
-
-    # Save tokenizer and model
-    tokenizer.save_pretrained("ml/bert_vectorizer")
-    model.save_pretrained("ml/bert_vectorizer")
-
-    return tokenizer, model
-
+    """Fit and save a TF-IDF vectorizer"""
+    vectorizer = TfidfVectorizer(max_features=2000, norm='l2')
+    vectorizer.fit(texts)
+    joblib.dump(vectorizer, "ml/vectorizer.pkl")
+    return vectorizer
 
 def transform_text(texts):
-    """Load BERT tokenizer/model and convert texts into embeddings"""
-    tokenizer = BertTokenizer.from_pretrained("ml/bert_vectorizer")
-    model = BertModel.from_pretrained("ml/bert_vectorizer")
-    model.eval()
+    """Load vectorizer and transform text"""
+    vectorizer = joblib.load("ml/vectorizer.pkl")
+    return vectorizer.transform(texts)
 
-    with torch.no_grad():
-        encoded_input = tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=128,
-            return_tensors='pt'
-        )
-        output = model(**encoded_input)
-        embeddings = mean_pooling(output, encoded_input['attention_mask'])
-    return embeddings
+# def mean_pooling(model_output, attention_mask):
+#     """Apply mean pooling to BERT output"""
+#     token_embeddings = model_output[0]  # First element of output contains embeddings
+#     input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size())
+#     sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+#     sum_mask = input_mask_expanded.sum(1).clamp(min=1e-9)
+#     return sum_embeddings / sum_mask
+
+# def fit_vectorizer(texts):
+#     """Initialize and save BERT tokenizer and model (no fitting like TF-IDF)"""
+#     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+#     model = BertModel.from_pretrained("bert-base-uncased")
+#     model.eval()
+
+#     # Save tokenizer and model
+#     tokenizer.save_pretrained("ml/bert_vectorizer")
+#     model.save_pretrained("ml/bert_vectorizer")
+
+#     return tokenizer, model
+
+
+# def transform_text(texts):
+#     """Load BERT tokenizer/model and convert texts into embeddings"""
+#     tokenizer = BertTokenizer.from_pretrained("ml/bert_vectorizer")
+#     model = BertModel.from_pretrained("ml/bert_vectorizer")
+#     model.eval()
+
+#     with torch.no_grad():
+#         encoded_input = tokenizer(
+#             texts,
+#             padding=True,
+#             truncation=True,
+#             max_length=128,
+#             return_tensors='pt'
+#         )
+#         output = model(**encoded_input)
+#         embeddings = mean_pooling(output, encoded_input['attention_mask'])
+#     return embeddings
