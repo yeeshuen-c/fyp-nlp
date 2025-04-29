@@ -176,11 +176,50 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
 
     # Use the ObjectId to find comments related to the post
     comments_data = await db.comments.find({"post_id": post_object_id}).to_list(length=100)
-    comments = []
-    for comment in comments_data:
-        comment["post_id"] = post_id
-        comments.append(Comment(**comment))
-    return comments
+    if not comments_data:
+        return []
+
+    combined_comments = []
+    platform = None
+    analysis = None
+
+    for comment_doc in comments_data:
+        # Take the first platform and analysis found
+        if platform is None:
+            platform = comment_doc.get("platform")
+        if analysis is None:
+            analysis = comment_doc.get("analysis")
+
+        combined_comments.extend(comment_doc.get("comments", []))  # Merge all comment arrays
+
+    # Now build a single combined Comment object
+    combined_comment_data = {
+        "comment_id": comments_data[0]["comment_id"],  # You can decide which comment_id to pick
+        "platform": platform,
+        "comments": combined_comments,
+        "post_id": post_id,
+        "analysis": analysis
+    }
+
+    return [Comment(**combined_comment_data)]
+
+async def get_combined_comments_by_post_id(post_id: int) -> Dict:
+    pipeline = [
+        {"$match": {"post_id": post_id}},  # Match documents with the given post_id
+        {
+            "$group": {
+                "_id": "$post_id",  # Group by post_id
+                "post_id": {"$first": "$post_id"},  # Retain the post_id
+                "platform": {"$first": "$platform"},  # Retain the platform
+                "comments": {"$push": {"$arrayElemAt": ["$comments", 0]}},  # Combine all comments
+                "analysis": {"$first": "$analysis"}  # Retain the analysis
+            }
+        },
+        {"$project": {"_id": 0}}  # Exclude the _id field from the result
+    ]
+
+    result = await db.comments.aggregate(pipeline).to_list(length=1)
+    return result[0] if result else {}
 
 # async def get_sentiment_analysis_by_user_id(user_id: int) -> float:
 #     user_id_filter = get_user_id_filter(user_id)

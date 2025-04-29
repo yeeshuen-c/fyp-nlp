@@ -7,3 +7,4 @@ sentiment_analysis_results.xlsx
 excel/
 ml/bert_vectorizer/
 metrics/
+mlruns/

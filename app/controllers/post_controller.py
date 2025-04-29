@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional
 from fastapi import HTTPException
 from ..schemas import Post, Comment
-from ..services.post_service import add_new_post, count_posts_by_user_id_group_by_scam_framing, count_posts_by_user_id_group_by_scam_type_and_framing, get_comments_by_post_id, get_posts_by_user_id, count_posts_by_user_id, count_posts_by_user_id_group_by_scam_type, count_posts_by_user_id_group_by_platform,get_post_by_id, get_sentiment_analysis_by_user_id, mark_post_as_deleted, update_post
+from ..services.post_service import add_new_post, count_posts_by_user_id_group_by_scam_framing, count_posts_by_user_id_group_by_scam_type_and_framing, get_combined_comments_by_post_id, get_comments_by_post_id, get_posts_by_user_id, count_posts_by_user_id, count_posts_by_user_id_group_by_scam_type, count_posts_by_user_id_group_by_platform,get_post_by_id, get_sentiment_analysis_by_user_id, mark_post_as_deleted, update_post
 
 async def fetch_posts_by_user_id(user_id: int, platform: Optional[str] = None, scam_framing: Optional[str] = None, scam_type: Optional[str] = None) -> List[Post]:
     return await get_posts_by_user_id(user_id, platform, scam_framing, scam_type)
@@ -26,6 +26,9 @@ async def fetch_post_by_id(post_id: int) -> Post:
 
 async def fetch_comments_by_post_id(post_id: int) -> List[Comment]:
     return await get_comments_by_post_id(post_id)
+
+async def fetch_combined_comments_by_post_id(post_id: int) -> Dict:
+    return await get_combined_comments_by_post_id(post_id)
 
 async def fetch_sentiment_analysis_by_user_id(user_id: int) -> Dict[str, float]:
     return await get_sentiment_analysis_by_user_id(user_id)

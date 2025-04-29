@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException, Query
 from typing import List, Dict, Optional
 from ..schemas import Post, Comment
-from ..controllers.post_controller import create_new_post, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_sentiment_analysis_by_user_id, get_scam_framing_counts, mark_post_as_deleted_controller, update_post_controller
+from ..controllers.post_controller import create_new_post, fetch_combined_comments_by_post_id, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_sentiment_analysis_by_user_id, get_scam_framing_counts, mark_post_as_deleted_controller, update_post_controller
 
 router = APIRouter()
 
@@ -28,6 +28,10 @@ async def get_post(post_id: int):
 @router.get("/posts/{post_id}/comments", response_model=List[Comment])
 async def get_comments(post_id: int):
     return await fetch_comments_by_post_id(post_id)
+
+@router.get("/posts/{post_id}/combined_comments", response_model=Dict)
+async def get_combined_comments(post_id: int):
+    return await fetch_combined_comments_by_post_id(post_id)
 
 @router.get("/posts/user/{user_id}/sentiment_analysis", response_model=Dict[str, float])
 async def get_sentiment_analysis(user_id: int):

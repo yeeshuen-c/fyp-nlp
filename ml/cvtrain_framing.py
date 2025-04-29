@@ -11,7 +11,8 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 from app.database import db
 from ml.preprocessing import clean_text, fit_vectorizer, transform_text
 import asyncio
-from sklearn.preprocessing import MinMaxScaler
+import mlflow
+import mlflow.sklearn
 
 # Fetch data from MongoDB
 async def get_all_posts():
@@ -36,7 +37,7 @@ async def fetch_and_preprocess_data():
 
 # Main function
 def main():
-     # Start the timer
+    # Start the timer
     start_time = time.time()
 
     # Run the async function using an event loop
@@ -45,10 +46,6 @@ def main():
     # Vectorization
     vectorizer = fit_vectorizer(texts)
     X_vec = transform_text(texts)
-
-    # # scaler for bert vector 
-    # scaler = MinMaxScaler()
-    # X_vec = scaler.fit_transform(X_vec)
 
     # Initialize models
     models = {
@@ -61,12 +58,11 @@ def main():
     # Initialize Stratified K-Fold
     skf = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
 
-    # Open a file to save the output
-    output_file = "cv_framing.txt"
-    with open(output_file, "w") as f:
-        # Perform cross-validation
-        for model_name, model in models.items():
-            f.write(f"\n{model_name} Cross-Validation Results:\n")
+    
+    # Perform cross-validation
+    for model_name, model in models.items():
+        with mlflow.start_run(run_name=model_name):  # Start an MLflow run
+            print(f"\n{model_name} Cross-Validation Results:")
             fold = 1
             accuracies = []
             all_misclassified = []  # To store misclassified data for all folds
@@ -87,13 +83,12 @@ def main():
                 report = classification_report(y_test, preds, output_dict=True, zero_division=0)
                 conf_matrix = confusion_matrix(y_test, preds)
 
-                f.write(f"\nFold {fold}:\n")
-                f.write(f"Accuracy: {acc}\n")
-                f.write("Classification Report:\n")
-                for label, metrics in report.items():
-                    f.write(f"{label}: {metrics}\n")
-                f.write("Confusion Matrix:\n")
-                f.write(f"{conf_matrix}\n")
+                print(f"\nFold {fold}:")
+                print(f"Accuracy: {acc}")
+                print("Classification Report:")
+                print(report)
+                print("Confusion Matrix:")
+                print(conf_matrix)
 
                 # Collect misclassified data
                 misclassified = []
@@ -107,21 +102,31 @@ def main():
                 all_misclassified.extend(misclassified)
                 fold += 1
 
-            # Write average accuracy across all folds
-            f.write(f"\nAverage Accuracy for {model_name}: {np.mean(accuracies):.4f}\n")
+            # Log metrics and parameters to MLflow
+            avg_accuracy = np.mean(accuracies)
+            mlflow.log_param("Model", model_name)
+            mlflow.log_metric("Average Accuracy", avg_accuracy)
 
-            # Save misclassified data to an Excel file
-            if all_misclassified:
-                df_misclassified = pd.DataFrame(all_misclassified)
-                excel_file = f"excel/{model_name}_framing_misclassified.xlsx"
-                df_misclassified.to_excel(excel_file, index=False)
-                print(f"Misclassified data for {model_name} saved to {excel_file}")
-    # End the timer
-    end_time = time.time()
-    total_time = end_time - start_time
-    print(f"Total time used: {total_time:.2f} seconds")
+            # # Save misclassified data to an Excel file
+            # if all_misclassified:
+            #     df_misclassified = pd.DataFrame(all_misclassified)
+            #     excel_file = f"excel/{model_name}_framing_misclassified.xlsx"
+            #     df_misclassified.to_excel(excel_file, index=False)
+            #     print(f"Misclassified data for {model_name} saved to {excel_file}")
 
-    print(f"Cross-validation results saved to {output_file}")
+            #     # Log the misclassified Excel file to MLflow
+            #     mlflow.log_artifact(excel_file)
+
+            # Log the trained model to MLflow
+            mlflow.sklearn.log_model(model, model_name)
+            
+        # End the timer
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"Total time used: {total_time:.2f} seconds")
+        mlflow.log_metric("Total_Time_Used_seconds", total_time)
+
+    print(f"Cross-validation results saved to mlflow")
 
 # Run the main function
 if __name__ == "__main__":

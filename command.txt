@@ -8,6 +8,7 @@ uvicorn app.main:app --host localhost --port 8000 --reload
 python -m ml.train_test
 
 
+mlflow ui
 
 
 bert--
