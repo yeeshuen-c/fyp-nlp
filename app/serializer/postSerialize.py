@@ -17,7 +17,7 @@ def post_serializer(post: Dict[str, Any]) -> Dict[str, Any]:
             "comment_count": post["engagement"]["comment_count"]
         },
         "analysis": {
-            "scam_framing": post["analysis"]["scam_framing"],
+            "scam_framing": post["analysis"]["scam_framing2"],
             "scam_or_not": post["analysis"].get("scam_or_not"),
             "scam_type": post["analysis"]["scam_type"]
         },

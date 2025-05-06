@@ -6,5 +6,5 @@ sentiment_analysis_results.xlsx
 *.pkl
 excel/
 ml/bert_vectorizer/
-metrics/
+metrics_result/
 mlruns/

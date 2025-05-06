@@ -110,7 +110,7 @@ if __name__ == "__main__":
             if sentiments:
                 overall_sentiment = max(set(sentiments), key=sentiments.count)
             else:
-                overall_sentiment = "Neutral"  # Default sentiment if no chunks are processed
+                overall_sentiment = "neutral"  # Default sentiment if no chunks are processed
 
             # Append results to the list
             results.append({

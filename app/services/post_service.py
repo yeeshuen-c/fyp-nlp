@@ -190,7 +190,12 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
         if analysis is None:
             analysis = comment_doc.get("analysis")
 
-        combined_comments.extend(comment_doc.get("comments", []))  # Merge all comment arrays
+        # Merge all comment arrays and include sentiment_analysis2
+        for comment in comment_doc.get("comments", []):
+            combined_comments.append({
+                "comment_content": comment.get("comment_content"),
+                "sentiment_analysis": comment.get("sentiment_analysis2")  # Include sentiment_analysis2
+            })
 
     # Now build a single combined Comment object
     combined_comment_data = {
@@ -211,7 +216,12 @@ async def get_combined_comments_by_post_id(post_id: int) -> Dict:
                 "_id": "$post_id",  # Group by post_id
                 "post_id": {"$first": "$post_id"},  # Retain the post_id
                 "platform": {"$first": "$platform"},  # Retain the platform
-                "comments": {"$push": {"$arrayElemAt": ["$comments", 0]}},  # Combine all comments
+                "comments": {
+                    "$push": {
+                        "comment_content": "$comments.comment_content",
+                        "sentiment_analysis2": "$comments.sentiment_analysis2"  # Include sentiment_analysis2
+                    }
+                },
                 "analysis": {"$first": "$analysis"}  # Retain the analysis
             }
         },
@@ -272,7 +282,7 @@ async def get_sentiment_analysis_by_user_id(user_id: int) -> Dict[str, float]:
     posts = await db.posts.find(user_id_filter).to_list(length=None)
     post_ids = [post['post_id'] for post in posts]
     
-    sentiment_mapping = {"Positive": "positive", "Neutral": "neutral", "Negative": "negative"}
+    sentiment_mapping = {"positive": "positive", "neutral": "neutral", "negative": "negative"}
     sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
     total_comments = 0
     

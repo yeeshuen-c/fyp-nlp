@@ -12,6 +12,7 @@ from ml.preprocessing import clean_text, fit_vectorizer, transform_text
 import asyncio
 import mlflow
 import mlflow.sklearn
+from sklearn.tree import DecisionTreeClassifier
 
 # Define scam type keywords
 keyword_to_scam_type = {
@@ -47,8 +48,24 @@ async def get_all_posts():
 # Fetch and preprocess data
 async def fetch_and_preprocess_data():
     posts, labels = await get_all_posts()  # Await the async function
-    texts = [clean_text(post) for post in posts]  # Preprocess text
-    return texts, labels
+    texts = []
+    final_labels = []
+
+    for post_text, label in zip(posts, labels):
+        cleaned_text = clean_text(post_text)
+
+        # # Apply keyword matching
+        # keyword_detected_label = detect_scam_type_by_keywords(cleaned_text)
+        # if keyword_detected_label:
+        #     final_labels.append(keyword_detected_label)  # Override label with detected one
+        # else:
+        #     final_labels.append(label)  # Use original label
+
+        final_labels.append(label)  # Use the original label
+
+        texts.append(cleaned_text)
+
+    return texts, final_labels
 
 # Main function
 def main():
@@ -87,7 +104,16 @@ def main():
         #     "params": {
         #         "alpha": [0.1, 0.5, 1.0]
         #     }
-        # }
+        # },
+            "Decision Tree": {
+            "model": DecisionTreeClassifier(),
+            "params": {
+                "criterion": ["gini", "entropy"],  # Splitting criteria
+                "max_depth": [None, 10, 20, 30],  # Maximum depth of the tree
+                "min_samples_split": [2, 5, 10],  # Minimum samples required to split
+                "min_samples_leaf": [1, 2, 4]  # Minimum samples required in a leaf node
+            }
+        }
     }
 
     # Initialize Stratified K-Fold
@@ -95,63 +121,41 @@ def main():
 
     # Perform cross-validation with GridSearchCV
     for model_name, config in model_params.items():
-        with mlflow.start_run(run_name=model_name):  # Start an MLflow run
-            print(f"\n{model_name} Cross-Validation Results:")
-            grid_search = GridSearchCV(
-                estimator=config["model"],
-                param_grid=config["params"],
-                scoring="accuracy",
-                cv=skf,
-                n_jobs=-1
-            )
-            grid_search.fit(X_vec, labels)
+        try:
+            # Check if a run is already active and end it
+            if mlflow.active_run():
+                mlflow.end_run()
 
-            # Log the best parameters and best score
-            best_params = grid_search.best_params_
-            best_score = grid_search.best_score_
-            mlflow.log_params(best_params)
-            mlflow.log_metric("Best Accuracy", best_score)
+            with mlflow.start_run(run_name=model_name):  # Start an MLflow run
+                mlflow.log_param("TF-IDF ngram_range", "(1, 1)")
+                mlflow.log_param("TF-IDF max_features", 2000)
+                print(f"\n{model_name} Cross-Validation Results:")
+                grid_search = GridSearchCV(
+                    estimator=config["model"],
+                    param_grid=config["params"],
+                    scoring="accuracy",
+                    cv=skf,
+                    n_jobs=-1
+                )
+                grid_search.fit(X_vec, labels)
 
-            print(f"Best Parameters for {model_name}: {best_params}")
-            print(f"Best Accuracy for {model_name}: {best_score}")
+                # Log the best parameters and best score
+                best_params = grid_search.best_params_
+                best_score = grid_search.best_score_
+                mlflow.log_params(best_params)
+                mlflow.log_metric("Best Accuracy", best_score)
 
-            # Collect misclassified data
-            best_model = grid_search.best_estimator_
-            all_misclassified = []
-            fold = 1
-            for train_index, test_index in skf.split(X_vec, labels):
-                X_train, X_test = X_vec[train_index], X_vec[test_index]
-                y_train, y_test = np.array(labels)[train_index], np.array(labels)[test_index]
-                texts_test = np.array(texts)[test_index]  # Get the corresponding test texts
+                print(f"Best Parameters for {model_name}: {best_params}")
+                print(f"Best Accuracy for {model_name}: {best_score}")
 
-                # Train the best model
-                best_model.fit(X_train, y_train)
+                # Log the best model to MLflow
+                best_model = grid_search.best_estimator_
+                mlflow.sklearn.log_model(best_model, model_name)
 
-                # Make predictions
-                preds = best_model.predict(X_test)
-
-                # Collect misclassified data
-                for i in range(len(y_test)):
-                    if preds[i] != y_test[i]:
-                        all_misclassified.append({
-                            "Text": texts_test[i],
-                            "True Label": y_test[i],
-                            "Predicted Label": preds[i]
-                        })
-                fold += 1
-
-            # Save misclassified data to an Excel file
-            if all_misclassified:
-                df_misclassified = pd.DataFrame(all_misclassified)
-                excel_file = f"excel/{model_name}_scamtype_misclassified.xlsx"
-                df_misclassified.to_excel(excel_file, index=False)
-                print(f"Misclassified data for {model_name} saved to {excel_file}")
-
-                # Log the misclassified Excel file to MLflow
-                mlflow.log_artifact(excel_file)
-
-            # Log the best model to MLflow
-            mlflow.sklearn.log_model(best_model, model_name)
+        finally:
+            # Ensure the current MLflow run is ended
+            if mlflow.active_run():
+                mlflow.end_run()
 
     print("Cross-validation with hyperparameter tuning logged to MLflow")
 

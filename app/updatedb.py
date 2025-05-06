@@ -3,6 +3,7 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 import pandas as pd
+from bson import ObjectId
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -164,8 +165,131 @@ async def update_comment_counts_for_posts():
 
     print("Comment counts updated successfully.")
 
+from openpyxl import load_workbook
+
+def update_column_r():
+    """
+    Read column Q from 'Scam_Coding_Sheet_Comparison_20250409.xlsx' (rows 3 to 1160)
+    and replace column R in 'Scam_Coding_Sheet_Comparison2.xlsx' (rows 3 to 1160),
+    while preserving original formulas in the Excel file.
+    """
+    # File paths
+    file1 = r"C:\Users\yscha\OneDrive - matrik\USM\Y4S1\FYP\code\bend\excel\Scam_Coding_Sheet_Comparison_20250409.xlsx"
+    file2 = r"C:\Users\yscha\OneDrive - matrik\USM\Y4S1\FYP\code\bend\excel\Scam_Coding_Sheet_Comparison2.xlsx"
+    output_file = r"C:\Users\yscha\OneDrive - matrik\USM\Y4S1\FYP\code\bend\excel\Scam_Coding_Sheet_Comparison2_Updated.xlsx"
+
+    # Load both Excel files
+    wb1 = load_workbook(file1, data_only=False)  # Load source file (keep formulas)
+    wb2 = load_workbook(file2, data_only=False)  # Load target file (keep formulas)
+
+    # Select the first sheet in both workbooks
+    ws1 = wb1.active
+    ws2 = wb2.active
+
+    # Copy column Q (index 17 in Excel, 16 in 0-based indexing) from file1 to column R (index 18 in Excel, 17 in 0-based indexing) in file2
+    for row in range(3, 1161):  # Rows 3 to 1160
+        ws2.cell(row=row, column=18).value = ws1.cell(row=row, column=17).value
+
+    # Save the updated file2 to a new Excel file
+    wb2.save(output_file)
+    print(f"Column R updated successfully and saved to {output_file}")
+
+async def update_scam_framing():
+    """
+    Read the Excel file, decrement post_id by 1, find the corresponding MongoDB document,
+    and update the analysis.scam_framing2 field if the content matches.
+    """
+    # File path
+    file = r"C:\Users\yscha\OneDrive - matrik\USM\Y4S1\FYP\code\bend\excel\Scam_Coding_Sheet_Comparison2_Updated.xlsx"
+
+    # Load the Excel file
+    wb = load_workbook(file, data_only=True)
+    ws = wb.active
+
+    # Connect to MongoDB
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+
+    # Iterate through rows in the Excel file (starting from row 3)
+    for row in range(3, ws.max_row + 1):
+        post_id = ws.cell(row=row, column=1).value  # Column A (post_id)
+        post_text = ws.cell(row=row, column=2).value  # Column B (post_text)
+        scam_framing2 = ws.cell(row=row, column=16).value  # Column P (scam_framing2)
+
+        if post_id is None or post_text is None or scam_framing2 is None:
+            continue  # Skip rows with missing data
+
+        # Decrement post_id by 1
+        post_id -= 1
+
+        # Find the document in MongoDB
+        document = await db.posts.find_one({"post_id": post_id})
+
+        if document:
+            # Update the analysis.scam_framing2 field
+            await db.posts.update_one(
+                {"post_id": post_id},
+                {"$set": {"analysis.scam_framing2": scam_framing2}}
+            )
+            print(f"Updated post_id {post_id} with scam_framing2: {scam_framing2}")
+        else:
+            print(f"No document found for post_id {post_id}")
+
+    print("Scam framing updates completed.")    
+
+async def update_sentiment_analysis_by_comment_id():
+    """
+    Read the Excel file, find MongoDB documents using comment_id from column A,
+    check if the comment_content matches the text in column C, and update
+    the sentiment_analysis2 field in the comments array with the value from column G.
+    """
+    # File path
+    file = r"C:\Users\yscha\OneDrive - matrik\USM\Y4S1\FYP\code\bend\excel\sentiment_analysis_hf.xlsx"
+
+    # Load the Excel file
+    wb = load_workbook(file, data_only=True)
+    ws = wb.active
+
+    # Connect to MongoDB
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+
+    # Iterate through rows in the Excel file (starting from row 2 to skip the header)
+    for row in range(2, ws.max_row + 1):
+        comment_id = ws.cell(row=row, column=1).value  # Column A (comment_id)
+        comment_text = ws.cell(row=row, column=3).value  # Column C (text)
+        sentiment_analysis2 = ws.cell(row=row, column=7).value  # Column G (sentiment_analysis2)
+
+        if comment_id is None or comment_text is None or sentiment_analysis2 is None:
+            continue  # Skip rows with missing data
+
+        # Find the document in MongoDB using the comment_id
+        document = await db.comments.find_one({"comment_id": comment_id})
+
+        if document:
+            # Iterate through the comments array in the document
+            comments = document.get("comments", [])
+            for comment in comments:
+                if comment.get("comment_content") == comment_text:
+                    # Update the sentiment_analysis2 field for the matching comment
+                    await db.comments.update_one(
+                        {"comment_id": comment_id, "comments.comment_content": comment_text},
+                        {"$set": {"comments.$.sentiment_analysis2": sentiment_analysis2}}
+                    )
+                    print(f"Updated comment_id {comment_id} with sentiment_analysis2: {sentiment_analysis2}")
+                    break
+            else:
+                print(f"No matching comment_content found for comment_id {comment_id}")
+        else:
+            print(f"No document found for comment_id {comment_id}")
+
+    print("Sentiment analysis updates completed.")
+
 if __name__ == "__main__":
     # asyncio.run(update_user_passwords())
     # asyncio.run(export_post_labelling())
     # compare_excel_files()
-    asyncio.run(update_comment_counts_for_posts())
+    # asyncio.run(update_comment_counts_for_posts())
+    # update_column_r()
+    asyncio.run(update_scam_framing())
+    # asyncio.run(update_sentiment_analysis_by_comment_id())

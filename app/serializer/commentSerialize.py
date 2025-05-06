@@ -12,7 +12,7 @@ def comment_serializer(comment: Dict[str, Any]) -> Dict[str, Any]:
         ],
         "post_id": str(comment["post_id"]),
         "analysis": {
-            "sentiment_analysis": comment["analysis"].get("sentiment_analysis", "")
+            "sentiment_analysis": comment["analysis"].get("sentiment_analysis2", "")
         }
     }
 
