@@ -66,7 +66,7 @@ class CommentAnalysis(BaseModel):
 
 class Comment(BaseModel):
     comment_id: int
-    platform: str
+    # platform: str
     comments: List[CommentContent]
     post_id: int
     analysis: CommentAnalysis
@@ -74,3 +74,14 @@ class Comment(BaseModel):
     class Config:
         populate_by_name = True
         arbitrary_types_allowed = True
+
+class CommentCreate(BaseModel):
+    # post_id: int
+    comment_content: str
+
+class CommentResponse(BaseModel):
+    post_id: int
+    comment_id: int
+    comments: List[dict]
+    # platform: Optional[str]
+    # analysis: Optional[dict]

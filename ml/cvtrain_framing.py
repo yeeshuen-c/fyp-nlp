@@ -131,6 +131,10 @@ def main():
                 # Log the trained model to MLflow
                 mlflow.sklearn.log_model(model, model_name)
 
+                # model_filename = f"ml/scamframing/{model_name.lower().replace(' ', '_')}_model.pkl"
+                # joblib.dump(model, model_filename)
+                # print(f"Trained model for {model_name} saved to {model_filename}")
+
             # End the timer
             end_time = time.time()
             total_time = end_time - start_time

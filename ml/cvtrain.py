@@ -152,6 +152,9 @@ def main():
                 best_model = grid_search.best_estimator_
                 mlflow.sklearn.log_model(best_model, model_name)
 
+                model_filename = f"ml/{model_name.lower().replace(' ', '_')}_model.pkl"
+                joblib.dump(best_model, model_filename)
+
         finally:
             # Ensure the current MLflow run is ended
             if mlflow.active_run():

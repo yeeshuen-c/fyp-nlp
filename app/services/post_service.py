@@ -5,6 +5,10 @@ from ..schemas import Analysis, Engagement, Post, Comment
 from ..database import db
 from datetime import datetime, timezone
 from bson import ObjectId
+import joblib
+from ml.preprocessing import clean_text, transform_text
+from ml.cvtrain import detect_scam_type_by_keywords  # If using rule-based matcher
+from app.services.comment_service import classify_comment_sentiment
 
 def get_user_id_filter(user_id: int, platform: Optional[str] = None) -> Dict[str, int]:
     if platform == "Facebook":
@@ -185,10 +189,10 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
 
     for comment_doc in comments_data:
         # Take the first platform and analysis found
-        if platform is None:
-            platform = comment_doc.get("platform")
+        # if platform is None:
+        #     platform = comment_doc.get("platform")
         if analysis is None:
-            analysis = comment_doc.get("analysis")
+            analysis = comment_doc.get("analysis", {})
 
         # Merge all comment arrays and include sentiment_analysis2
         for comment in comment_doc.get("comments", []):
@@ -200,13 +204,51 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
     # Now build a single combined Comment object
     combined_comment_data = {
         "comment_id": comments_data[0]["comment_id"],  # You can decide which comment_id to pick
-        "platform": platform,
+        # "platform": platform,
         "comments": combined_comments,
         "post_id": post_id,
         "analysis": analysis
     }
 
     return [Comment(**combined_comment_data)]
+
+async def delete_comment_by_id(comment_id: int) -> bool:
+    """
+    Delete a comment by its comment_id.
+    Returns True if the comment was deleted, False otherwise.
+    """
+    result = await db.comments.delete_one({"comment_id": comment_id})
+    return result.deleted_count > 0
+
+async def update_post_likes(post_id: int, increment: bool = True) -> bool:
+    """
+    Update the engagement.likes count for a specific post.
+    Increment or decrement the likes count based on the `increment` parameter.
+    Handles conversion between string and numeric types.
+    Returns True if the update was successful, False otherwise.
+    """
+    # Retrieve the current likes value
+    post = await db.posts.find_one({"post_id": post_id})
+    if not post:
+        raise ValueError(f"Post with post_id {post_id} not found.")
+
+    # Get the current likes value and convert it to an integer
+    current_likes = post.get("engagement", {}).get("likes", "0")
+    if not isinstance(current_likes, (int, float)):
+        try:
+            current_likes = int(current_likes)
+        except ValueError:
+            raise ValueError(f"Invalid 'likes' value for post_id {post_id}: {current_likes}")
+
+    # Increment or decrement the likes count
+    updated_likes = current_likes + 1 if increment else max(0, current_likes - 1)
+
+    # Convert the updated likes back to a string and update the database
+    result = await db.posts.update_one(
+        {"post_id": post_id},
+        {"$set": {"engagement.likes": str(updated_likes)}}
+    )
+    return result.modified_count > 0
 
 async def get_combined_comments_by_post_id(post_id: int) -> Dict:
     pipeline = [
@@ -308,6 +350,32 @@ async def get_sentiment_analysis_by_user_id(user_id: int) -> Dict[str, float]:
     
     return sentiment_percentages
 
+vectorizer = joblib.load("ml/scamtype/vectorizer.pkl")
+type_lr_model = joblib.load("ml/scamtype/logistic_regression_model.pkl")
+
+def classify_scamtype(text: str) -> str:
+    cleaned_text = clean_text(text)
+
+    # # Rule-based keyword match
+    # rule_label = detect_scam_type_by_keywords(cleaned_text)
+    # if rule_label:
+    #     return rule_label
+
+    # ML-based prediction
+    transformed = vectorizer.transform([cleaned_text])
+    prediction = type_lr_model.predict(transformed)[0]
+    return prediction
+
+framing_lr_model = joblib.load("ml/scamframing/logistic_regression_model.pkl")
+
+def classify_scamframing(text: str) -> str:
+    cleaned_text = clean_text(text)
+
+    # ML-based prediction
+    transformed = vectorizer.transform([cleaned_text])
+    prediction = framing_lr_model.predict(transformed)[0]
+    return prediction
+
 async def add_new_post(post_title: Optional[str], post_content: str, user_id: int, url: Optional[str]) -> Post:
     # Get the largest post_id from the database
     largest_post = await db.posts.find_one(sort=[("post_id", -1)])
@@ -315,6 +383,9 @@ async def add_new_post(post_title: Optional[str], post_content: str, user_id: in
 
     largest_batch = await db.posts.find_one(sort=[("batch", -1)])
     new_batch_id = largest_batch["batch"] + 1 if largest_batch else 1
+
+    scam_type = classify_scamtype(post_content)
+    scam_framing = classify_scamframing(post_content)
 
     # Create the new post document
     new_post = {
@@ -325,14 +396,57 @@ async def add_new_post(post_title: Optional[str], post_content: str, user_id: in
         "post_url": url,
         "user_id": user_id,
         "engagement": Engagement().dict(),  # Ensure correct format
-        "analysis": Analysis().dict(),  # Ensure correct format
+        "analysis": {
+            **Analysis().dict(),
+            "scam_type": scam_type,
+            "scam_framing2": scam_framing
+        },
         "batch": new_batch_id
     }
 
     # Insert the new post into the database
     await db.posts.insert_one(new_post)
+    print(scam_type, scam_framing)
 
     return Post(**new_post)
+
+async def add_new_comment(post_id: int, comment_content: str) -> Dict:
+    """
+    Add a new comment to the comments collection.
+    Classify the sentiment of the comment using Hugging Face and store it.
+    """
+    # Get the original post
+    post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}})
+    if not post_data:
+        raise ValueError(f"Post with post_id {post_id} does not exist.")
+    
+    largest_comment = await db.comments.find_one(sort=[("comment_id", -1)])
+    new_comment_id = largest_comment["comment_id"] + 1 if largest_comment else 1
+
+    post_object_id = post_data["_id"]
+
+    # Use Hugging Face pipeline
+    sentiment_result = classify_comment_sentiment(comment_content)
+    sentiment = sentiment_result["sentiment"]
+
+    # Create the new comment document
+    new_comment = {
+        "post_id": post_object_id,
+        "comment_id": new_comment_id,
+        "comments": [
+            {
+                "comment_content": comment_content,
+                "sentiment_analysis2": sentiment,
+            }
+        ]
+    }
+
+    # Save to MongoDB
+    result = await db.comments.insert_one(new_comment)
+    print(new_comment)
+    new_comment["post_id"] = post_id 
+
+    return new_comment
 
 async def update_post(post_id: int, user_id: int, post_title: Optional[str] = None, post_content: Optional[str] = None, url: Optional[str] = None) -> Optional[Post]:
     update_data = {}
@@ -389,4 +503,559 @@ async def count_posts_by_user_id_group_by_scam_framing(user_id: int) -> Dict[str
         scam_framing = item["_id"] if item["_id"] is not None else "Unknown"
         scam_framing_counts[scam_framing] = item["count"]
     
+    return scam_framing_counts 
+
+async def count_posts_by_scam_type_and_sentiment(user_id: int) -> Dict[str, Dict[str, int]]:
+    user_id_filter = get_user_id_filter(user_id)
+    adjusted_filter = {f"post.{key}": value for key, value in user_id_filter.items()}
+
+    pipeline = [
+        {
+            "$lookup": {
+                "from": "posts",
+                "localField": "post_id",
+                "foreignField": "_id",
+                "as": "post"
+            }
+        },
+        {
+            "$unwind": "$post"
+        },
+        {
+            "$match": adjusted_filter
+        },
+        {
+            "$unwind": "$comments"
+        },
+        {
+            "$addFields": {
+                "scam_type": "$post.analysis.scam_type",
+                "sentiment": {
+                    "$ifNull": ["$comments.sentiment_analysis2", "neutral"]
+                }
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "scam_type": "$scam_type",
+                    "sentiment": "$sentiment"
+                },
+                "count": {"$sum": 1}
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_id.scam_type",
+                "sentiments": {
+                    "$push": {
+                        "sentiment": "$_id.sentiment",
+                        "count": "$count"
+                    }
+                }
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "scam_type": "$_id",  # Rename _id to scam_type
+                "sentiments": {
+                    "$arrayToObject": {
+                        "$map": {
+                            "input": {
+                                "$filter": {
+                                    "input": "$sentiments",
+                                    "as": "item",
+                                    "cond": {"$and": [
+                                        {"$ne": ["$$item.sentiment", None]},
+                                        {"$ne": ["$$item.count", None]}
+                                    ]}
+                                }
+                            },
+                            "as": "item",
+                            "in": {"k": "$$item.sentiment", "v": "$$item.count"}
+                        }
+                    }
+                }
+            }
+        }
+    ]
+
+    results = await db.comments.aggregate(pipeline).to_list(None)
+
+    # Check for empty results
+    if not results:
+        print("Pipeline returned no results")
+        return {}
+
+    # Format into nested dict structure
+    scam_type_counts = {}
+    for doc in results:
+        scam_type = doc["scam_type"] or "Unknown"
+        scam_type_counts[scam_type] = {
+            "positive": 0,
+            "neutral": 0,
+            "negative": 0
+        }
+
+        # Validate that "sentiments" is a list
+        if not isinstance(doc["sentiments"], dict):
+            print(f"Unexpected 'sentiments' format: {doc['sentiments']}")  # Debugging
+            continue
+
+        for sentiment, count in doc["sentiments"].items():
+            label = sentiment.lower()
+            if label in scam_type_counts[scam_type]:
+                scam_type_counts[scam_type][label] = count
+
+    return scam_type_counts 
+
+async def count_posts_by_scam_framing_and_sentiment(user_id: int) -> Dict[str, Dict[str, int]]:
+    user_id_filter = get_user_id_filter(user_id)
+    adjusted_filter = {f"post.{key}": value for key, value in user_id_filter.items()}
+
+    pipeline = [
+        {
+            "$lookup": {
+                "from": "posts",
+                "localField": "post_id",
+                "foreignField": "_id",
+                "as": "post"
+            }
+        },
+        {
+            "$unwind": "$post"
+        },
+        {
+            "$match": adjusted_filter
+        },
+        {
+            "$unwind": "$comments"
+        },
+        {
+            "$addFields": {
+                "scam_framing": "$post.analysis.scam_framing2",
+                "sentiment": {
+                    "$ifNull": ["$comments.sentiment_analysis2", "neutral"]
+                }
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "scam_framing": "$scam_framing",
+                    "sentiment": "$sentiment"
+                },
+                "count": {"$sum": 1}
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_id.scam_framing",
+                "sentiments": {
+                    "$push": {
+                        "sentiment": "$_id.sentiment",
+                        "count": "$count"
+                    }
+                }
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "scam_framing": "$_id",  # Rename _id to scam_type
+                "sentiments": {
+                    "$arrayToObject": {
+                        "$map": {
+                            "input": {
+                                "$filter": {
+                                    "input": "$sentiments",
+                                    "as": "item",
+                                    "cond": {"$and": [
+                                        {"$ne": ["$$item.sentiment", None]},
+                                        {"$ne": ["$$item.count", None]}
+                                    ]}
+                                }
+                            },
+                            "as": "item",
+                            "in": {"k": "$$item.sentiment", "v": "$$item.count"}
+                        }
+                    }
+                }
+            }
+        }
+    ]
+
+    results = await db.comments.aggregate(pipeline).to_list(None)
+
+    # Check for empty results
+    if not results:
+        print("Pipeline returned no results")
+        return {}
+
+    # Format into nested dict structure
+    scam_framing_counts = {}
+    for doc in results:
+        scam_framing = doc["scam_framing"] or "None"
+        scam_framing_counts[scam_framing] = {
+            "positive": 0,
+            "neutral": 0,
+            "negative": 0
+        }
+
+        # Validate that "sentiments" is a list
+        if not isinstance(doc["sentiments"], dict):
+            print(f"Unexpected 'sentiments' format: {doc['sentiments']}")  # Debugging
+            continue
+
+        for sentiment, count in doc["sentiments"].items():
+            label = sentiment.lower()
+            if label in scam_framing_counts[scam_framing]:
+                scam_framing_counts[scam_framing][label] = count
+
     return scam_framing_counts
+    user_id_filter = get_user_id_filter(user_id)
+    adjusted_filter = {f"post.{key}": value for key, value in user_id_filter.items()}
+
+    pipeline = [
+        {
+            "$lookup": {
+                "from": "posts",
+                "localField": "post_id",
+                "foreignField": "_id",
+                "as": "post"
+            }
+        },
+        {
+            "$unwind": "$post"
+        },
+        {
+            "$match": adjusted_filter
+        },
+        {
+            "$unwind": "$comments"
+        },
+        {
+            "$addFields": {
+                "scam_type": "$post.analysis.scam_type",
+                "sentiment": {
+                    "$ifNull": ["$comments.sentiment_analysis2", "neutral"]
+                }
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "scam_type": "$scam_type",
+                    "sentiment": "$sentiment"
+                },
+                "count": {"$sum": 1}
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_id.scam_type",
+                "sentiments": {
+                    "$push": {
+                        "sentiment": "$_id.sentiment",
+                        "count": "$count"
+                    }
+                }
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "scam_type": "$_id",
+                "sentiments": {
+                    "$arrayToObject": {
+                        "$map": {
+                            "input": {
+                                "$filter": {
+                                    "input": "$sentiments",
+                                    "as": "item",
+                                    "cond": {"$and": [
+                                        {"$ne": ["$$item.sentiment", None]},
+                                        {"$ne": ["$$item.count", None]}
+                                    ]}
+                                }
+                            },
+                            "as": "item",
+                            "in": {"k": "$$item.sentiment", "v": "$$item.count"}
+                        }
+                    }
+                }
+            }
+        }
+    ]
+
+    results = await db.comments.aggregate(pipeline).to_list(None)
+
+    # Format into nested dict structure
+    scam_type_counts = {}
+    for doc in results:
+        scam_type = doc["scam_type"] or "Unknown"
+        scam_type_counts[scam_type] = {
+            "positive": 0,
+            "neutral": 0,
+            "negative": 0
+        }
+        for s in doc["sentiments"]:
+            label = s["sentiment"].lower()
+            if label in scam_type_counts[scam_type]:
+                scam_type_counts[scam_type][label] = s["count"]
+
+    return scam_type_counts 
+
+    user_id_filter = get_user_id_filter(user_id)
+    # Adjust the filter to reference post.user_id
+    adjusted_filter = {
+        f"post.{key}": value for key, value in user_id_filter.items()
+    }
+    pipeline = [
+        {
+            "$lookup": {
+                "from": "posts",
+                "localField": "post_id",
+                "foreignField": "_id",
+                "as": "post"
+            }
+        },
+        {
+            "$unwind": "$post"  # Unwind the joined post array
+        },
+        {
+            "$match": adjusted_filter
+        },
+        {
+            "$unwind": "$comments"  # Unwind the nested comments array
+        },
+        {
+            "$addFields": {
+                "scam_type": "$post.analysis.scam_type",  # Extract scam_type from the post
+                "sentiment": {
+                    "$ifNull": ["$comments.sentiment_analysis2", "neutral"]  # Extract sentiment_analysis2 from comments
+                }
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "scam_type": "$scam_type",
+                    "sentiment": "$sentiment"
+                },
+                "count": {"$sum": 1}  # Count the number of comments for each scam_type and sentiment
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_id.scam_type",  # Group by scam_type
+                "sentiments": {
+                    "$push": {
+                        "sentiment": "$_id.sentiment",
+                        "count": "$count"
+                    }
+                }
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "scam_type": "$_id",  # Rename _id to scam_type
+                "sentiments": {
+                    "$arrayToObject": {
+                        "$map": {
+                            "input": {
+                                "$filter": {
+                                    "input": "$sentiments",
+                                    "as": "item",
+                                    "cond": {"$and": [
+                                        {"$ne": ["$$item.sentiment", None]},  # Ensure sentiment is not null
+                                        {"$ne": ["$$item.count", None]}  # Ensure count is not null
+                                    ]}
+                                }
+                            },
+                            "as": "item",
+                            "in": {"k": "$$item.sentiment", "v": "$$item.count"}
+                        }
+                    }
+                }
+            }
+        }
+    ]
+    results = await db.comments.aggregate(pipeline).to_list(None)
+    # print("Pipeline Stage Results:", results)
+    
+    #     # Step 1: Perform the $lookup
+    # lookup_stage = [
+    #     {
+    #         "$lookup": {
+    #             "from": "posts",
+    #             "localField": "post_id",
+    #             "foreignField": "_id",
+    #             "as": "post"
+    #         }
+    #     }
+    # ]
+    # lookup_results = await db.comments.aggregate(lookup_stage).to_list(None)
+    # print("After $lookup:", lookup_results)
+    
+    # # Step 2: Unwind the "post" array
+    # unwind_post_stage = [
+    #     {
+    #         "$unwind": "$post"
+    #     }
+    # ]
+    # unwind_post_results = await db.comments.aggregate(lookup_stage + unwind_post_stage).to_list(None)
+    # # Step 3: Apply the $match stage
+    # match_stage = [
+    #     {
+    #         "$match": adjusted_filter
+    #     }
+    # ]
+    # match_results = await db.comments.aggregate(lookup_stage + unwind_post_stage + match_stage).to_list(None)
+    
+    # print("After $match:", match_results)
+
+    # Format into nested dict structure
+    scam_type_counts = {}
+    for doc in results:
+        scam_type = doc["_id"] or "Unknown"
+        scam_type_counts[scam_type] = {
+            "positive": 0,
+            "neutral": 0,
+            "negative": 0
+        }
+        for s in doc["sentiments"]:
+            label = s["sentiment"].lower()
+            if label in scam_type_counts[scam_type]:
+                scam_type_counts[scam_type][label] = s["count"]
+
+    return scam_type_counts
+
+    user_id_filter = get_user_id_filter(user_id)
+    pipeline = [
+        {
+            "$match": {
+                "user_id": user_id_filter
+            }
+        },
+        {
+            "$lookup": {
+                "from": "comments",
+                "localField": "_id",
+                "foreignField": "post_id",
+                "as": "comments"
+            }
+        },
+        {
+            "$unwind": "$comments"
+        },
+        {
+            "$addFields": {
+                "sentiment": {
+                    "$ifNull": ["$comments.analysis.sentiment_analysis", "neutral"]
+                }
+            }
+        },
+        {
+            "$group": {
+                "_id": {
+                    "scam_type": "$analysis.scam_type",
+                    "sentiment": "$sentiment"
+                },
+                "count": {"$sum": 1}
+            }
+        },
+        {
+            "$group": {
+                "_id": "$_id.scam_type",
+                "sentiments": {
+                    "$push": {
+                        "sentiment": "$_id.sentiment",
+                        "count": "$count"
+                    }
+                }
+            }
+        }
+    ]
+
+    results = await db.posts.aggregate(pipeline).to_list(None)
+
+    # Format into nested dict structure
+    scam_type_counts = {}
+    for doc in results:
+        scam_type = doc["_id"] or "Unknown"
+        scam_type_counts[scam_type] = {
+            "positive": 0,
+            "neutral": 0,
+            "negative": 0
+        }
+        for s in doc["sentiments"]:
+            label = s["sentiment"].lower()
+            if label in scam_type_counts[scam_type]:
+                scam_type_counts[scam_type][label] = s["count"]
+
+    return scam_type_counts
+
+    """
+    Count posts grouped by scam_type and sentiment_analysis2 for a given user_id.
+    Returns a nested dictionary where the outer keys are scam types and the inner keys are sentiment labels.
+    """
+    user_id_filter = get_user_id_filter(user_id)
+    
+    # Fetch all posts by user_id to get post_ids
+    posts = await db.posts.find(user_id_filter).to_list(length=None)
+    post_ids = [post['_id'] for post in posts]  # Use ObjectId for joining with comments
+
+    pipeline = [
+        {"$match": {"post_id": {"$in": post_ids}}},  # Match comments for the user's posts
+        {"$unwind": "$comments"},  # Unwind the comments array
+        {"$group": {
+            "_id": {
+                "scam_type": "$analysis.scam_type",  # Group by scam_type
+                "sentiment": "$comments.sentiment_analysis2"  # Group by sentiment_analysis2
+            },
+            "count": {"$sum": 1}  # Count the number of comments
+        }},
+        {"$group": {
+            "_id": "$_id.scam_type",  # Group by scam_type
+            "sentiments": {
+                "$push": {
+                    "sentiment": "$_id.sentiment",
+                    "count": "$count"
+                }
+            }
+        }},
+        {"$project": {
+            "_id": 0,
+            "scam_type": "$_id",
+            "sentiments": {
+                "$arrayToObject": {
+                    "$map": {
+                        "input": {
+                            "$filter": {
+                                "input": "$sentiments",
+                                "as": "item",
+                                "cond": {"$and": [
+                                    {"$ne": ["$$item.sentiment", None]},  # Ensure sentiment is not null
+                                    {"$ne": ["$$item.count", None]}  # Ensure count is not null
+                                ]}
+                            }
+                        },
+                        "as": "item",
+                        "in": {"k": "$$item.sentiment", "v": "$$item.count"}
+                    }
+                }
+            }
+        }}
+    ]
+    result = await db.comments.aggregate(pipeline).to_list(length=None)
+
+    # Convert the result into a more usable dictionary format
+    scam_type_sentiment_counts = {}
+    for item in result:
+        scam_type = item["scam_type"] if item["scam_type"] else "Unknown"
+        scam_type_sentiment_counts[scam_type] = item["sentiments"]
+
+    return scam_type_sentiment_counts

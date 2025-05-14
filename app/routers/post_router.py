@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException, Query
 from typing import List, Dict, Optional
-from ..schemas import Post, Comment
-from ..controllers.post_controller import create_new_post, fetch_combined_comments_by_post_id, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_sentiment_analysis_by_user_id, get_scam_framing_counts, mark_post_as_deleted_controller, update_post_controller
+from ..schemas import CommentCreate, CommentResponse, Post, Comment
+from ..controllers.post_controller import create_comment, create_new_post, delete_comment, fetch_combined_comments_by_post_id, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_sentiment_analysis_by_user_id, get_scam_framing_and_sentiment_counts, get_scam_framing_counts, get_scam_type_and_sentiment_counts, like_post, mark_post_as_deleted_controller, update_post_controller, update_post_likes_controller
 
 router = APIRouter()
 
@@ -82,3 +82,50 @@ async def get_scam_framing_counts_route(user_id: int):
     API endpoint to get scam_framing counts for a given user_id.
     """
     return await get_scam_framing_counts(user_id)
+
+@router.get("/posts/user/{user_id}/scam-type-sentiment", response_model=Dict[str, Dict[str, int]])
+async def get_scam_type_sentiment(user_id: int):
+    """
+    API endpoint to get scam type and sentiment counts for a user.
+    """
+    return await get_scam_type_and_sentiment_counts(user_id)
+
+@router.get("/posts/user/{user_id}/scam-framing-sentiment", response_model=Dict[str, Dict[str, int]])
+async def get_scam_framing_sentiment(user_id: int):
+    """
+    API endpoint to get scam f and sentiment counts for a user.
+    """
+    return await get_scam_framing_and_sentiment_counts(user_id)
+
+@router.post("/posts/{post_id}/comments", response_model=CommentResponse)
+async def add_comment(post_id: int, comment: CommentCreate):
+    """
+    API endpoint to add a new comment to a specific post.
+    """
+    return await create_comment(
+        post_id=post_id,
+
+        comment_content=comment.comment_content
+    )
+
+@router.delete("/posts/comments/{comment_id}", status_code=200)
+async def delete_comment_endpoint(comment_id: int):
+    """
+    API endpoint to delete a comment by its comment_id.
+    """
+    return await delete_comment(comment_id)
+
+# @router.post("/posts/{post_id}/like", status_code=200)
+# async def like_post_endpoint(post_id: int):
+#     """
+#     API endpoint to increment the likes count for a specific post.
+#     """
+#     return await like_post(post_id)
+
+@router.post("/posts/{post_id}/likes", status_code=200)
+async def update_post_likes_endpoint(post_id: int, increment: bool = Query(True)):
+    """
+    API endpoint to update the likes count for a specific post.
+    Use the `increment` query parameter to determine whether to increment or decrement the count.
+    """
+    return await update_post_likes_controller(post_id, increment)
