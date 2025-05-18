@@ -285,11 +285,70 @@ async def update_sentiment_analysis_by_comment_id():
 
     print("Sentiment analysis updates completed.")
 
+async def fix_scam_type_none():
+    """
+    Find post documents where analysis.scam_type is "Non", "None ", or "none"
+    and update it to "None".
+    """
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+
+    # Find all posts with scam_type needing correction
+    query = {
+        "$or": [
+            {"analysis.scam_type": "Non"},
+            {"analysis.scam_type": "None "},
+            {"analysis.scam_type": "none"}
+        ]
+    }
+    posts = await db.posts.find(query).to_list(length=None)
+    print(f"Found {len(posts)} posts to update.")
+
+    for post in posts:
+        post_id = post.get("post_id")
+        await db.posts.update_one(
+            {"_id": post["_id"]},
+            {"$set": {"analysis.scam_type": "None"}}
+        )
+        print(f"Updated post_id {post_id} scam_type to 'None'.")
+
+    print("Scam type normalization completed.")
+
+async def fix_scam_framing():
+    """
+    Find post documents where analysis.scam_type is "-"
+    and update it to "None".
+    """
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+
+    # Find all posts with scam_type needing correction
+    query = {
+        "$or": [
+            {"analysis.scam_framing2": "-"},
+            {"analysis.scam_framing2": "none"}
+        ]
+    }
+    posts = await db.posts.find(query).to_list(length=None)
+    print(f"Found {len(posts)} posts to update.")
+
+    for post in posts:
+        post_id = post.get("post_id")
+        print(f"Post ID: {post_id}")
+    #     await db.posts.update_one(
+    #         {"_id": post["_id"]},
+    #         {"$set": {"analysis.scam_type": "None"}}
+    #     )
+    #     print(f"Updated post_id {post_id} scam_type to 'None'.")
+
+    # print("Scam type normalization completed.")
+
 if __name__ == "__main__":
     # asyncio.run(update_user_passwords())
     # asyncio.run(export_post_labelling())
     # compare_excel_files()
     # asyncio.run(update_comment_counts_for_posts())
     # update_column_r()
-    asyncio.run(update_scam_framing())
+    # asyncio.run(update_scam_framing())
     # asyncio.run(update_sentiment_analysis_by_comment_id())
+    asyncio.run(fix_scam_framing())

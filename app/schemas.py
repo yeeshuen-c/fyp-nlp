@@ -85,3 +85,7 @@ class CommentResponse(BaseModel):
     comments: List[dict]
     # platform: Optional[str]
     # analysis: Optional[dict]
+
+class UserCreate(BaseModel):
+    username: str
+    password: str

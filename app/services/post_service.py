@@ -18,23 +18,23 @@ def get_user_id_filter(user_id: int, platform: Optional[str] = None) -> Dict[str
     elif platform == "Official Website":
         return {"user_id": user_id, "deleted": {"$ne": 1}}
     else:
-         if user_id in [1, 2, 3, 4, 5]:
+        if user_id in [1, 2, 3, 4, 5]:
             return {"user_id": {"$in": [user_id, user_id + 5, user_id + 10]}, "deleted": {"$ne": 1}}
-
+        # return {"user_id": user_id, "deleted": {"$ne": 1}}
+    if user_id > 15:
+        # Remove user_id restriction, only filter by deleted
+        return {"deleted": {"$ne": 1}}
+    
 async def get_posts_by_user_id(user_id: int, platform: Optional[str] = None, scam_framing: Optional[str] = None, scam_type: Optional[str] = None) -> List[Post]:
     """
     Retrieve posts by user_id with optional filters for platform, scam_framing, and scam_type.
     Ensure engagement.comment_count2 is used if it exists.
     """
     user_id_filter = get_user_id_filter(user_id, platform)
-
     if scam_framing:
         user_id_filter["analysis.scam_framing"] = scam_framing
     if scam_type:
         user_id_filter["analysis.scam_type"] = scam_type
-
-    print(user_id_filter, platform)
-
     # Fetch posts from the database
     posts_data = await db.posts.find(user_id_filter).sort("post_id", -1).to_list(length=None)  # Sort by post_id in descending order
     posts = []
@@ -56,7 +56,6 @@ async def get_posts_by_user_id(user_id: int, platform: Optional[str] = None, sca
         if 'comment_count2' in engagement:
             engagement['comment_count'] = engagement['comment_count2']
         post['engagement'] = engagement
-
         # Append the processed post to the list
         posts.append(Post(**post))
     return posts
@@ -175,32 +174,26 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
     post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}})
     if not post_data:
         return []
-
     post_object_id = post_data["_id"]
-
     # Use the ObjectId to find comments related to the post
     comments_data = await db.comments.find({"post_id": post_object_id}).to_list(length=100)
     if not comments_data:
         return []
-
     combined_comments = []
     platform = None
     analysis = None
-
     for comment_doc in comments_data:
         # Take the first platform and analysis found
         # if platform is None:
         #     platform = comment_doc.get("platform")
         if analysis is None:
             analysis = comment_doc.get("analysis", {})
-
         # Merge all comment arrays and include sentiment_analysis2
         for comment in comment_doc.get("comments", []):
             combined_comments.append({
                 "comment_content": comment.get("comment_content"),
                 "sentiment_analysis": comment.get("sentiment_analysis2")  # Include sentiment_analysis2
             })
-
     # Now build a single combined Comment object
     combined_comment_data = {
         "comment_id": comments_data[0]["comment_id"],  # You can decide which comment_id to pick
@@ -419,10 +412,8 @@ async def add_new_comment(post_id: int, comment_content: str) -> Dict:
     post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}})
     if not post_data:
         raise ValueError(f"Post with post_id {post_id} does not exist.")
-    
     largest_comment = await db.comments.find_one(sort=[("comment_id", -1)])
     new_comment_id = largest_comment["comment_id"] + 1 if largest_comment else 1
-
     post_object_id = post_data["_id"]
 
     # Use Hugging Face pipeline
@@ -440,7 +431,6 @@ async def add_new_comment(post_id: int, comment_content: str) -> Dict:
             }
         ]
     }
-
     # Save to MongoDB
     result = await db.comments.insert_one(new_comment)
     print(new_comment)

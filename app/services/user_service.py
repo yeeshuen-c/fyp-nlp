@@ -17,17 +17,18 @@ async def get_user_by_id(user_id: int) -> Optional[Dict[str, Any]]:
 
     combined_user = {
         "user_id": user_id,
-        "agencies_name": users_data[0]["agencies_name"],
+        "agencies_name": users_data[0].get("agencies_name", ""),
         "password": users_data[0]["password"],
         "username": users_data[0].get("username", ""),
         "platforms": []
     }
 
     for user_data in users_data:
+        platform_data = user_data.get("platform", {})
         platform = {
-            "followers": user_data["platform"].get("followers"),
-            "platform_name": user_data["platform"]["platform_name"],
-            "url": user_data["platform"]["url"]
+            "followers": platform_data.get("followers", ""),
+            "platform_name": platform_data.get("platform_name", ""),
+            "url": platform_data.get("url", "")
         }
         combined_user["platforms"].append(platform)
 
@@ -38,3 +39,26 @@ async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     if user_data:
         return user_data
     return None
+
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+async def create_user(username: str, password: str):
+    existing_user = await db.users.find_one({"username": username})
+    if existing_user:
+        return None  # Username already exists
+    
+    largest_user = await db.users.find_one(sort=[("user_id", -1)])
+    new_user_id = largest_user["user_id"] + 1 if largest_user else 1
+
+    hashed_password = pwd_context.hash(password)
+    user_data = {
+        "user_id": new_user_id,
+        "username": username,
+        "password": hashed_password
+    }
+    result = await db.users.insert_one(user_data)
+    user_data["user_id"] = str(result.inserted_id)
+    print("User created:", user_data)
+    return user_data

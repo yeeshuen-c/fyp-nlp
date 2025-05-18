@@ -7,6 +7,8 @@ async def fetch_posts_by_user_id(user_id: int, platform: Optional[str] = None, s
     return await get_posts_by_user_id(user_id, platform, scam_framing, scam_type)
 
 async def fetch_post_count_by_user_id(user_id: int) -> int:
+    # if user_id > 15:
+    #     return {"user_id": user_id, "post_count": 0}
     count = await count_posts_by_user_id(user_id)
     return count
 
@@ -106,14 +108,14 @@ async def delete_comment(comment_id: int) -> dict:
         raise HTTPException(status_code=404, detail=f"Comment with comment_id {comment_id} not found.")
     return {"message": f"Comment with comment_id {comment_id} has been deleted successfully."}
 
-async def like_post(post_id: int) -> dict:
-    """
-    Controller function to increment the likes count for a post.
-    """
-    success = await increment_post_likes(post_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Post with post_id {post_id} not found.")
-    return {"message": f"Likes count for post_id {post_id} has been incremented."}
+# async def like_post(post_id: int) -> dict:
+#     """
+#     Controller function to increment the likes count for a post.
+#     """
+#     success = await increment_post_likes(post_id)
+#     if not success:
+#         raise HTTPException(status_code=404, detail=f"Post with post_id {post_id} not found.")
+#     return {"message": f"Likes count for post_id {post_id} has been incremented."}
 
 async def update_post_likes_controller(post_id: int, increment: bool) -> dict:
     """

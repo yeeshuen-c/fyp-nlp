@@ -1,0 +1,5 @@
+Confusion Matrix:
+[[905   3]
+ [216  31]]
+Labels:
+gain, loss

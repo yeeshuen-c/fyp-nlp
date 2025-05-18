@@ -4,8 +4,8 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from typing import Optional
-from ..schemas import User
-from ..services.user_service import get_user_by_username
+from ..schemas import User, UserCreate
+from ..services.user_service import create_user, get_user_by_username
 
 # Secret key to encode and decode JWT tokens
 SECRET_KEY = "your_secret_key"
@@ -59,4 +59,18 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
         "token_type": "bearer",
         "username": user["username"],
         "user_id": user["user_id"]
+    }
+
+@router.post("/auth/register")
+async def register(user: UserCreate):
+    new_user = await create_user(user.username, user.password)
+    if not new_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username already exists"
+        )
+    return {
+        "message": "User created successfully",
+        "username": new_user["username"],
+        "user_id": new_user["user_id"]
     }
