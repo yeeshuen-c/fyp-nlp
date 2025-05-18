@@ -8,3 +8,4 @@ excel/
 ml/bert_vectorizer/
 metrics_result/
 mlruns/
+ml/metrics/
