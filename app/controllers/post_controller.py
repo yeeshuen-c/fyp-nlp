@@ -1,7 +1,7 @@
 from typing import List, Dict, Optional
 from fastapi import HTTPException
 from ..schemas import CommentResponse, Post, Comment
-from ..services.post_service import add_new_comment, add_new_post, count_posts_by_scam_framing_and_sentiment, count_posts_by_scam_type_and_sentiment, count_posts_by_user_id_group_by_scam_framing, count_posts_by_user_id_group_by_scam_type_and_framing, delete_comment_by_id, get_combined_comments_by_post_id, get_comments_by_post_id, get_posts_by_user_id, count_posts_by_user_id, count_posts_by_user_id_group_by_scam_type, count_posts_by_user_id_group_by_platform,get_post_by_id, get_sentiment_analysis_by_user_id, mark_post_as_deleted, update_post, update_post_likes
+from ..services.post_service import add_new_comment, add_new_post, count_posts_by_scam_framing_and_sentiment, count_posts_by_scam_type_and_sentiment, count_posts_by_user_id_group_by_scam_framing, count_posts_by_user_id_group_by_scam_type_and_framing, delete_comment_by_id, get_combined_comments_by_post_id, get_comments_by_post_id, get_posts_by_user_id, count_posts_by_user_id, count_posts_by_user_id_group_by_scam_type, count_posts_by_user_id_group_by_platform,get_post_by_id, get_scam_framing_engagement_counts, get_scam_type_engagement_counts, get_sentiment_analysis_by_user_id, mark_post_as_deleted, update_post, update_post_likes
 
 async def fetch_posts_by_user_id(user_id: int, platform: Optional[str] = None, scam_framing: Optional[str] = None, scam_type: Optional[str] = None) -> List[Post]:
     return await get_posts_by_user_id(user_id, platform, scam_framing, scam_type)
@@ -130,3 +130,21 @@ async def update_post_likes_controller(post_id: int, increment: bool) -> dict:
             raise HTTPException(status_code=404, detail=f"Post with post_id {post_id} not found.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+async def fetch_scam_type_engagement_counts(user_id: int) -> Dict[str, Dict[str, int]]:
+    """
+    Controller to get scam type engagement counts.
+    """
+    result = await get_scam_type_engagement_counts(user_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No engagement data found.")
+    return result
+
+async def fetch_scam_framing_engagement_counts(user_id: int) -> Dict[str, Dict[str, int]]:
+    """
+    Controller to get scam framing engagement counts.
+    """
+    result = await get_scam_framing_engagement_counts(user_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No engagement data found.")
+    return result

@@ -495,6 +495,110 @@ async def count_posts_by_user_id_group_by_scam_framing(user_id: int) -> Dict[str
     
     return scam_framing_counts 
 
+async def get_scam_type_engagement_counts(user_id: int) -> Dict[str, Dict[str, int]]:
+    user_id_filter = get_user_id_filter(user_id)
+    pipeline = [
+        {"$match": user_id_filter},
+        {
+            "$group": {
+                "_id": "$analysis.scam_type",
+                "likes": {
+                    "$sum": {
+                        "$convert": {
+                            "input": "$engagement.likes",
+                            "to": "int",
+                            "onError": 0,
+                            "onNull": 0
+                        }
+                    }
+                },
+                "shares": {
+                    "$sum": {
+                        "$convert": {
+                            "input": "$engagement.shares",
+                            "to": "int",
+                            "onError": 0,
+                            "onNull": 0
+                        }
+                    }
+                },
+                "comments": {
+                    "$sum": {
+                        "$convert": {
+                            "input": "$engagement.comment_count",
+                            "to": "int",
+                            "onError": 0,
+                            "onNull": 0
+                        }
+                    }
+                }
+            }
+        }
+    ]
+    
+    results = await db.posts.aggregate(pipeline).to_list(length=None)
+    scam_type_engagement = {}
+    for item in results:
+        scam_type = item["_id"] if item["_id"] else "Unknown"
+        scam_type_engagement[scam_type] = {
+            "likes": item.get("likes", 0),
+            "shares": item.get("shares", 0),
+            "comments": item.get("comments", 0)
+        }
+    return scam_type_engagement
+
+async def get_scam_framing_engagement_counts(user_id: int) -> Dict[str, Dict[str, int]]:
+    user_id_filter = get_user_id_filter(user_id)
+    pipeline = [
+        {"$match": user_id_filter},
+        {
+            "$group": {
+                "_id": "$analysis.scam_framing2",
+                "likes": {
+                    "$sum": {
+                        "$convert": {
+                            "input": "$engagement.likes",
+                            "to": "int",
+                            "onError": 0,
+                            "onNull": 0
+                        }
+                    }
+                },
+                "shares": {
+                    "$sum": {
+                        "$convert": {
+                            "input": "$engagement.shares",
+                            "to": "int",
+                            "onError": 0,
+                            "onNull": 0
+                        }
+                    }
+                },
+                "comments": {
+                    "$sum": {
+                        "$convert": {
+                            "input": "$engagement.comment_count",
+                            "to": "int",
+                            "onError": 0,
+                            "onNull": 0
+                        }
+                    }
+                }
+            }
+        }
+    ]
+    
+    results = await db.posts.aggregate(pipeline).to_list(length=None)
+    scam_framing_engagement = {}
+    for item in results:
+        scam_type = item["_id"] if item["_id"] else "Unknown"
+        scam_framing_engagement[scam_type] = {
+            "likes": item.get("likes", 0),
+            "shares": item.get("shares", 0),
+            "comments": item.get("comments", 0)
+        }
+    return scam_framing_engagement
+
 async def count_posts_by_scam_type_and_sentiment(user_id: int) -> Dict[str, Dict[str, int]]:
     user_id_filter = get_user_id_filter(user_id)
     adjusted_filter = {f"post.{key}": value for key, value in user_id_filter.items()}

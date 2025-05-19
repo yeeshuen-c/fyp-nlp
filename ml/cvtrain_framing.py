@@ -138,7 +138,7 @@ def main():
 
     if best_overall_model is not None:
         model_name_safe = best_overall_model_name.lower().replace(" ", "_")
-        model_filename = f"ml/metrics/scamframing/{model_name_safe}_model.pkl"
+        model_filename = f"ml/metrics/scamframing2/{model_name_safe}_model.pkl"
         joblib.dump(best_overall_model, model_filename)
 
         # --- Classification Report ---
@@ -149,12 +149,12 @@ def main():
         sns.heatmap(report_df, annot=True, fmt=".2f", cmap="RdYlGn", ax=report_ax)
         report_ax.set_title(f"{best_overall_model_name} Classification Report")
         plt.tight_layout()
-        report_img_path = f"ml/metrics/scamframing/{model_name_safe}_classification_report.png"
+        report_img_path = f"ml/metrics/scamframing2/{model_name_safe}_classification_report.png"
         plt.savefig(report_img_path)
         plt.close(report_fig)
 
         # Save classification report as text
-        report_txt_path = f"ml/metrics/scamframing/{model_name_safe}_classification_report.txt"
+        report_txt_path = f"ml/metrics/scamframing2/{model_name_safe}_classification_report.txt"
         with open(report_txt_path, "w") as f:
             f.write(classification_report(labels, best_overall_y_pred))
 
@@ -171,12 +171,12 @@ def main():
         cm_ax.xaxis.label.set_size(16)
         cm_ax.yaxis.label.set_size(16)
         plt.tight_layout()
-        cm_img_path = f"ml/metrics/scamframing/{model_name_safe}_confusion_matrix.png"
+        cm_img_path = f"ml/metrics/scamframing2/{model_name_safe}_confusion_matrix.png"
         plt.savefig(cm_img_path)
         plt.close(cm_fig)
 
         # Save confusion matrix as text
-        cm_txt_path = f"ml/metrics/scamframing/{model_name_safe}_confusion_matrix.txt"
+        cm_txt_path = f"ml/metrics/scamframing2/{model_name_safe}_confusion_matrix.txt"
         with open(cm_txt_path, "w") as f:
             f.write("Confusion Matrix:\n")
             f.write(np.array2string(cm))

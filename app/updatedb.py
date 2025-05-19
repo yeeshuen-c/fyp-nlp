@@ -211,7 +211,7 @@ async def update_scam_framing():
     db = client["scam_db2"]
 
     # Iterate through rows in the Excel file (starting from row 3)
-    for row in range(3, ws.max_row + 1):
+    for row in range(171, ws.max_row + 1):
         post_id = ws.cell(row=row, column=1).value  # Column A (post_id)
         post_text = ws.cell(row=row, column=2).value  # Column B (post_text)
         scam_framing2 = ws.cell(row=row, column=16).value  # Column P (scam_framing2)
@@ -219,8 +219,8 @@ async def update_scam_framing():
         if post_id is None or post_text is None or scam_framing2 is None:
             continue  # Skip rows with missing data
 
-        # Decrement post_id by 1
-        post_id -= 1
+        # # Decrement post_id by 1
+        # post_id -= 1
 
         # Find the document in MongoDB
         document = await db.posts.find_one({"post_id": post_id})
@@ -326,7 +326,9 @@ async def fix_scam_framing():
     query = {
         "$or": [
             {"analysis.scam_framing2": "-"},
-            {"analysis.scam_framing2": "none"}
+            {"analysis.scam_framing2": "none"},
+            {"analysis.scam_framing2": "None"},
+            {"analysis.scam_framing2": "Non"}
         ]
     }
     posts = await db.posts.find(query).to_list(length=None)
@@ -340,8 +342,109 @@ async def fix_scam_framing():
     #         {"$set": {"analysis.scam_type": "None"}}
     #     )
     #     print(f"Updated post_id {post_id} scam_type to 'None'.")
+        content = post.get("content", "")
+        print(f"\nPost ID: {post_id}")
+        print(f"Content: {content}\n")
+        value = input("Enter value for analysis.scam_framing2 (or leave blank to skip): ").strip()
+        if value:
+            await db.posts.update_one(
+                {"_id": post["_id"]},
+                {"$set": {"analysis.scam_framing2": value}}
+            )
+            print(f"Updated post_id {post_id} with scam_framing2: {value}")
+        else:
+            print(f"Skipped post_id {post_id}")
 
     # print("Scam type normalization completed.")
+
+async def list_unique_scam_framing2():
+    """
+    List all unique values in the analysis.scam_framing2 field from the posts collection.
+    """
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+    unique_values = await db.posts.distinct("analysis.scam_framing2")
+    print("Unique values in analysis.scam_framing2:")
+    for value in unique_values:
+        print(value)
+    return unique_values
+
+async def manual_update_missing_scam_framing2():
+    """
+    For each post missing analysis.scam_framing2, print post_id and content,
+    prompt user to type in the value, and update analysis.scam_framing2 in the database.
+    """
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+    query = {
+        "$or": [
+            {"analysis.scam_framing2": {"$exists": False}},
+            {"analysis.scam_framing2": None},
+            {"analysis.scam_framing2": ""}
+        ]
+    }
+    posts = await db.posts.find(query).to_list(length=None)
+    print("Posts missing analysis.scam_framing2:")
+
+    for post in posts:
+        post_id = post.get("post_id")
+        print(f"Post ID: {post_id}")
+        # content = post.get("content", "")
+        # print(f"\nPost ID: {post_id}")
+        # print(f"Content: {content}\n")
+        # value = input("Enter value for analysis.scam_framing2 (or leave blank to skip): ").strip()
+        # if value:
+        #     await db.posts.update_one(
+        #         {"_id": post["_id"]},
+        #         {"$set": {"analysis.scam_framing2": value}}
+        #     )
+        #     print(f"Updated post_id {post_id} with scam_framing2: {value}")
+        # else:
+        #     print(f"Skipped post_id {post_id}")
+
+    print(f"Total processed: {len(posts)}")
+
+from openpyxl import load_workbook
+
+def find_post_ids_not_in_excel_and_not_in_list():
+    # The provided list of post_ids
+    id_list = [
+        901, 902, 905, 924, 928, 931, 932, 933, 934, 935, 936, 942, 943, 944, 945, 946, 947, 948,
+        959, 960, 961, 962, 963, 964, 968, 972, 973, 974, 975, 976, 977, 978, 979, 980, 981, 982,
+        983, 984, 985, 986, 987, 988, 989, 990, 991, 996, 997, 998, 999, 1000, 1001, 1002, 1003,
+        1004, 1009, 1010, 1011, 1012, 1013, 1014, 1030, 1036, 1042, 1043, 1044, 1304, 1305, 1306,
+        1310, 1313, 1314, 1315, 1316, 1317, 1321, 1322, 1323, 1342, 1346, 1349, 1360, 1361, 1370,
+        1371, 1372, 1373, 1382, 1386, 1401, 1473, 1474, 1477, 1478, 1479, 1480, 1481, 1482
+    ]
+    id_set = set(id_list)
+
+    # Excel file path
+    file = r"C:\Users\yscha\OneDrive - matrik\USM\Y4S1\FYP\code\bend\excel\Scam_Coding_Sheet_Comparison2_Updated.xlsx"
+    from openpyxl import load_workbook
+    wb = load_workbook(file, data_only=True)
+    ws = wb.active
+
+    # Collect all post_ids from column A (assuming header in row 1)
+    excel_post_ids = set()
+    for row in range(2, ws.max_row + 1):
+        post_id = ws.cell(row=row, column=1).value
+        if post_id is not None:
+            try:
+                post_id_int = int(post_id)
+                excel_post_ids.add(post_id_int)
+            except Exception:
+                continue
+
+    # Check numbers from 150 to 1470 that are NOT in Excel and NOT in the list
+    not_in_excel_and_not_in_list = []
+    for pid in range(150, 1471):
+        if pid not in id_set and pid not in excel_post_ids:
+            not_in_excel_and_not_in_list.append(pid)
+
+    print("Post IDs from 150 to 1470 NOT in the provided list and NOT in the Excel file:")
+    for pid in not_in_excel_and_not_in_list:
+        print(pid)
+    print(f"Total: {len(not_in_excel_and_not_in_list)}")
 
 if __name__ == "__main__":
     # asyncio.run(update_user_passwords())
@@ -352,3 +455,6 @@ if __name__ == "__main__":
     # asyncio.run(update_scam_framing())
     # asyncio.run(update_sentiment_analysis_by_comment_id())
     asyncio.run(fix_scam_framing())
+    # asyncio.run(list_unique_scam_framing2())
+    # asyncio.run(manual_update_missing_scam_framing2())
+    # find_post_ids_not_in_excel_and_not_in_list()
