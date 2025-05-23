@@ -17,6 +17,7 @@ import mlflow
 import mlflow.sklearn
 from sklearn.tree import DecisionTreeClassifier
 import seaborn as sns
+from sklearn.model_selection import train_test_split
 
 # Define scam type keywords
 keyword_to_scam_type = {
@@ -38,7 +39,10 @@ def detect_scam_type_by_keywords(text):
 async def get_all_posts():
     """Fetch all posts from the MongoDB collection and return their content and labels."""
     posts_cursor = db.posts.find(
-        {"deleted": {"$ne": 1}},  # Exclude deleted posts
+        {
+        "deleted": {"$ne": 1},
+        "content": {"$nin": [None, ""]}
+        },
         {"content": 1, "analysis.scam_type": 1, "_id": 0}  # Fetch content and scam_type fields
     )
     posts = []
@@ -73,12 +77,17 @@ async def fetch_and_preprocess_data():
 
 # Main function
 def main():
-    # Run the async function using an event loop
     texts, labels = asyncio.run(fetch_and_preprocess_data())
 
-    # Vectorization
-    vectorizer = fit_vectorizer(texts)
-    X_vec = transform_text(texts)
+    # Split data into train/test sets (70/30 stratified)
+    X_train_texts, X_test_texts, y_train, y_test = train_test_split(
+        texts, labels, test_size=0.3, stratify=labels, random_state=42
+    )
+
+    # Fit vectorizer only on training data
+    vectorizer = fit_vectorizer(X_train_texts)
+    X_train_vec = transform_text(X_train_texts)
+    X_test_vec = transform_text(X_test_texts)
 
     # Define models and their hyperparameter grids
     model_params = {
@@ -146,14 +155,14 @@ def main():
                     cv=skf,
                     n_jobs=-1
                 )
-                grid_search.fit(X_vec, labels)
+                grid_search.fit(X_train_vec, y_train)
                 
                 best_score = grid_search.best_score_
                 if best_score > best_overall_score:
                     best_overall_score = best_score
                     best_overall_model = grid_search.best_estimator_
                     best_overall_model_name = model_name
-                    best_overall_y_pred = best_overall_model.predict(X_vec)
+                    best_overall_y_pred = best_overall_model.predict(X_test_vec)
 
                 # # Log the best parameters and best score
                 # best_params = grid_search.best_params_
@@ -183,7 +192,7 @@ def main():
         joblib.dump(best_overall_model, model_filename)
     
         # --- Classification Report ---
-        report = classification_report(labels, best_overall_y_pred, output_dict=True)
+        report = classification_report(y_test, best_overall_y_pred, output_dict=True)
         report_df = pd.DataFrame(report).iloc[:-1, :].T
     
         report_fig, report_ax = plt.subplots(figsize=(8, 4))
@@ -197,11 +206,11 @@ def main():
         # Save classification report as text
         report_txt_path = f"ml/metrics/scamtype/{model_name_safe}_classification_report.txt"
         with open(report_txt_path, "w") as f:
-            f.write(classification_report(labels, best_overall_y_pred))
+            f.write(classification_report(y_test, best_overall_y_pred))
     
                 # --- Confusion Matrix ---
-        cm = confusion_matrix(labels, best_overall_y_pred)
-        cm_labels = np.unique(labels)
+        cm = confusion_matrix(y_test, best_overall_y_pred)
+        cm_labels = np.unique(y_test)
         cm_fig, cm_ax = plt.subplots(figsize=(6, 6))
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=cm_labels)
         # Use reversed colormap so red is high, green is low

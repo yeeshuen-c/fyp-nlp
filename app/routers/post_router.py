@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Path, Query
 from typing import List, Dict, Optional
 from ..schemas import CommentCreate, CommentResponse, Post, Comment
-from ..controllers.post_controller import create_comment, create_new_post, delete_comment, fetch_combined_comments_by_post_id, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_scam_framing_engagement_counts, fetch_scam_type_engagement_counts, fetch_sentiment_analysis_by_user_id, get_scam_framing_and_sentiment_counts, get_scam_framing_counts, get_scam_type_and_sentiment_counts, mark_post_as_deleted_controller, update_post_controller, update_post_likes_controller
+from ..controllers.post_controller import create_comment, create_new_post, delete_comment, fetch_combined_comments_by_post_id, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_scam_framing_engagement_counts, fetch_scam_type_engagement_counts, fetch_sentiment_analysis_by_user_id, get_scam_framing_and_sentiment_counts, get_scam_framing_counts, get_scam_type_and_sentiment_counts, mark_post_as_deleted_controller, share_post_to_facebook_controller, update_post_controller, update_post_likes_controller
 
 router = APIRouter()
 
@@ -137,3 +137,9 @@ async def scam_type_engagement_counts(user_id: int) -> Dict[str, Dict[str, int]]
 @router.get("/posts/user/{user_id}/scam-framing-engagement-counts")
 async def scam_framing_engagement_counts(user_id: int) -> Dict[str, Dict[str, int]]:
     return await fetch_scam_framing_engagement_counts(user_id)
+
+@router.post("/posts/{post_id}/share/facebook")
+async def share_post_to_facebook(
+    post_id: int = Path(..., description="The post_id of the post to share to Facebook")
+):
+    return await share_post_to_facebook_controller(post_id)

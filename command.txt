@@ -15,4 +15,9 @@ bert--
 pip install transformers==4.37.2
 pip uninstall transformers -y
 
+fb api--
+curl -X POST "https://graph.facebook.com/695535050299933/feed" -d "message=Hello from FastAPI!" -d "access_token=PAGE_ACCESS_TOKEN"
 
+kill task--
+netstat -ano | findstr :8000
+taskkill /PID 243168 /F

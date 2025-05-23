@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
+import requests
 from ..schemas import Analysis, Engagement, Post, Comment
 from ..database import db
 from datetime import datetime, timezone
@@ -9,6 +10,10 @@ import joblib
 from ml.preprocessing import clean_text, transform_text
 from ml.cvtrain import detect_scam_type_by_keywords  # If using rule-based matcher
 from app.services.comment_service import classify_comment_sentiment
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def get_user_id_filter(user_id: int, platform: Optional[str] = None) -> Dict[str, int]:
     if platform == "Facebook":
@@ -206,6 +211,41 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
     return [Comment(**combined_comment_data)]
 
 async def delete_comment_by_id(comment_id: int) -> bool:
+    """
+    Delete a comment by its comment_id.
+    Before deleting, decrement the engagement.comment_count of the related post by 1.
+    Returns True if the comment was deleted, False otherwise.
+    """
+    # Find the comment document to get the post_id
+    comment_doc = await db.comments.find_one({"comment_id": comment_id})
+    if not comment_doc:
+        return False
+
+    # Get the post_id (ObjectId) from the comment document
+    post_object_id = comment_doc.get("post_id")
+    if not post_object_id:
+        return False
+
+    # Find the post document using the ObjectId
+    post_doc = await db.posts.find_one({"_id": post_object_id})
+    if post_doc:
+        # Get current comment_count, convert to int if needed
+        engagement = post_doc.get("engagement", {})
+        current_count = engagement.get("comment_count", 0)
+        try:
+            current_count = int(current_count)
+        except Exception:
+            current_count = 0
+        # Decrement, but not below zero
+        new_count = max(0, current_count - 1)
+        await db.posts.update_one(
+            {"_id": post_object_id},
+            {"$set": {"engagement.comment_count": str(new_count)}}
+        )
+
+    # Now delete the comment
+    result = await db.comments.delete_one({"comment_id": comment_id})
+    return result.deleted_count > 0
     """
     Delete a comment by its comment_id.
     Returns True if the comment was deleted, False otherwise.
@@ -435,6 +475,23 @@ async def add_new_comment(post_id: int, comment_content: str) -> Dict:
     result = await db.comments.insert_one(new_comment)
     print(new_comment)
     new_comment["post_id"] = post_id 
+
+    # Get the current likes value and convert it to an integer
+    current_comment_count = post_data.get("engagement", {}).get("comment_count", "0")
+    if not isinstance(current_comment_count, (int, float)):
+        try:
+            current_comment_count = int(current_comment_count)
+        except ValueError:
+            raise ValueError(f"Invalid 'comment_count' value for post_id {post_id}: {current_comment_count}")
+
+    # Increment or decrement the likes count
+    updated_current_comment_count = current_comment_count + 1 
+
+    # Convert the updated likes back to a string and update the database
+    result = await db.posts.update_one(
+        {"post_id": post_id},
+        {"$set": {"engagement.comment_count": str(updated_current_comment_count)}}
+    )
 
     return new_comment
 
@@ -1153,3 +1210,32 @@ async def count_posts_by_scam_framing_and_sentiment(user_id: int) -> Dict[str, D
         scam_type_sentiment_counts[scam_type] = item["sentiments"]
 
     return scam_type_sentiment_counts
+
+async def post_to_facebook_by_post_id(post_id: int) -> dict:
+    """
+    Retrieve a post by post_id and share its title and content to a Facebook Page.
+    """
+    # Fetch the post from the database
+    post = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}})
+    if not post:
+        raise ValueError(f"Post with post_id {post_id} not found.")
+
+    # Compose the message: include title and content (and optionally URL)
+    post_title = post.get("post_title", "")
+    content = post.get("content", "")
+    url = post.get("post_url", "")
+    message = f"{post_title}\n\n{content}"
+    if url:
+        message += f"\n\n{url}"
+
+    PAGE_ID = os.getenv("FB_PAGE_ID")
+    PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_TOKEN")    
+
+    # Post to Facebook Page
+    fb_url = f"https://graph.facebook.com/{PAGE_ID}/feed"
+    payload = {
+        "message": message,
+        "access_token": PAGE_ACCESS_TOKEN
+    }
+    response = requests.post(fb_url, data=payload)
+    return response.json()
