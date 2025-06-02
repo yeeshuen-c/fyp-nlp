@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import List, Dict, Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
@@ -17,10 +18,18 @@ load_dotenv()
 
 def get_user_id_filter(user_id: int, platform: Optional[str] = None) -> Dict[str, int]:
     if platform == "Facebook":
-        return {"user_id": {"$in": list(range(11, 16))}, "deleted": {"$ne": 1}}
+        if user_id > 15:
+            return {"user_id": {"$in": list(range(11, 16))}, "deleted": {"$ne": 1}}
+        return {"user_id": user_id + 10, "deleted": {"$ne": 1}}
     elif platform == "Twitter":
-        return {"user_id": {"$in": list(range(6, 11))}, "deleted": {"$ne": 1}}
+        if user_id > 15:
+            # Twitter users are 6-10
+            return {"user_id": {"$in": list(range(6, 11))}, "deleted": {"$ne": 1}}
+        return {"user_id": user_id + 5, "deleted": {"$ne": 1}}
     elif platform == "Official Website":
+        if user_id > 15:
+            # Official Website users are 1-5
+            return {"user_id": {"$in": list(range(1, 6))}, "deleted": {"$ne": 1}}
         return {"user_id": user_id, "deleted": {"$ne": 1}}
     else:
         if user_id in [1, 2, 3, 4, 5]:
@@ -30,18 +39,42 @@ def get_user_id_filter(user_id: int, platform: Optional[str] = None) -> Dict[str
         # Remove user_id restriction, only filter by deleted
         return {"deleted": {"$ne": 1}}
     
-async def get_posts_by_user_id(user_id: int, platform: Optional[str] = None, scam_framing: Optional[str] = None, scam_type: Optional[str] = None) -> List[Post]:
-    """
-    Retrieve posts by user_id with optional filters for platform, scam_framing, and scam_type.
-    Ensure engagement.comment_count2 is used if it exists.
-    """
+async def get_posts_by_user_id(
+    user_id: int,
+    platform: Optional[str] = None,
+    scam_framing: Optional[str] = None,
+    scam_type: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 10,
+    agency: Optional[str] = None  # Add agency filter
+) -> List[Post]:
+    # Map agency names to user_id
+    agency_map = {
+        "BNM": 1,
+        "MCMC": 2,
+        "PDRM": 3,
+        "MOF": 4,
+        "SECCOM": 5
+    }
+    # If agency is provided, override user_id
+    if agency:
+        user_id = agency_map.get(agency.upper(), user_id)
+    print(f"Fetching posts for user_id: {user_id}, platform: {platform}")
     user_id_filter = get_user_id_filter(user_id, platform)
+
     if scam_framing:
         user_id_filter["analysis.scam_framing"] = scam_framing
     if scam_type:
         user_id_filter["analysis.scam_type"] = scam_type
-    # Fetch posts from the database
-    posts_data = await db.posts.find(user_id_filter).sort("post_id", -1).to_list(length=None)  # Sort by post_id in descending order
+
+    posts_data = (
+        await db.posts.find(user_id_filter)
+        .sort("post_id", -1)
+        .skip(offset)
+        .limit(limit)
+        .to_list(length=limit)
+    )
+
     posts = []
     for post in posts_data:
         # Ensure date is properly formatted
@@ -51,18 +84,17 @@ async def get_posts_by_user_id(user_id: int, platform: Optional[str] = None, sca
             post['date'] = post['date'].isoformat() if isinstance(post['date'], datetime) else post['date']
         post['date'] = post.get('date', "No Date") if post.get('date') is not None else "No Date"
 
-        # Ensure other fields are set
         post['post_title'] = post.get('post_title', "")
-        post['batch'] = int(post['batch']) if isinstance(post['batch'], int) else int(post['batch']) if post['batch'].isdigit() else 0  # Ensure batch is an integer
-        post['content'] = post.get('content', "")  # Ensure content is set
+        post['batch'] = int(post['batch']) if isinstance(post['batch'], int) else int(post['batch']) if str(post['batch']).isdigit() else 0
+        post['content'] = post.get('content', "")
 
-        # Use comment_count2 if it exists, otherwise fall back to comment_count
         engagement = post.get('engagement', {})
         if 'comment_count2' in engagement:
             engagement['comment_count'] = engagement['comment_count2']
         post['engagement'] = engagement
-        # Append the processed post to the list
+
         posts.append(Post(**post))
+
     return posts
 
 async def count_posts_by_user_id(user_id: int) -> int:
@@ -181,34 +213,20 @@ async def get_comments_by_post_id(post_id: int) -> List[Comment]:
         return []
     post_object_id = post_data["_id"]
     # Use the ObjectId to find comments related to the post
-    comments_data = await db.comments.find({"post_id": post_object_id}).to_list(length=100)
-    if not comments_data:
-        return []
-    combined_comments = []
-    platform = None
-    analysis = None
-    for comment_doc in comments_data:
-        # Take the first platform and analysis found
-        # if platform is None:
-        #     platform = comment_doc.get("platform")
-        if analysis is None:
-            analysis = comment_doc.get("analysis", {})
-        # Merge all comment arrays and include sentiment_analysis2
-        for comment in comment_doc.get("comments", []):
-            combined_comments.append({
-                "comment_content": comment.get("comment_content"),
-                "sentiment_analysis": comment.get("sentiment_analysis2")  # Include sentiment_analysis2
-            })
-    # Now build a single combined Comment object
-    combined_comment_data = {
-        "comment_id": comments_data[0]["comment_id"],  # You can decide which comment_id to pick
-        # "platform": platform,
-        "comments": combined_comments,
-        "post_id": post_id,
-        "analysis": analysis
-    }
+    cursor = db.comments.find({"post_id": post_object_id})
+    comment_docs = await cursor.to_list(length=None)
 
-    return [Comment(**combined_comment_data)]
+    # Flatten subcomments and attach the parent comment_id
+    flattened_comments = []
+    for doc in comment_docs:
+        for subcomment in doc.get("comments", []):
+            flattened_comments.append({
+                "comment_id": doc.get("comment_id"),
+                "comment_content": subcomment.get("comment_content"),
+                "sentiment_analysis": subcomment.get("sentiment_analysis") or subcomment.get("sentiment_analysis2", "")
+            })
+
+    return {"comments": flattened_comments}
 
 async def delete_comment_by_id(comment_id: int) -> bool:
     """
@@ -399,7 +417,7 @@ def classify_scamtype(text: str) -> str:
     prediction = type_lr_model.predict(transformed)[0]
     return prediction
 
-framing_lr_model = joblib.load("ml/scamframing/logistic_regression_model.pkl")
+framing_lr_model = joblib.load("ml/metrics/scamframing3/logistic_regression_model.pkl")
 
 def classify_scamframing(text: str) -> str:
     cleaned_text = clean_text(text)
@@ -1238,4 +1256,173 @@ async def post_to_facebook_by_post_id(post_id: int) -> dict:
         "access_token": PAGE_ACCESS_TOKEN
     }
     response = requests.post(fb_url, data=payload)
-    return response.json()
+    result = response.json()
+
+    shared_post_url = None
+    if response.status_code == 200 and "id" in result:
+        # Get current shares value and increment
+        current_shares = post.get("engagement", {}).get("shares", 0)
+        try:
+            current_shares = int(current_shares)
+        except Exception:
+            current_shares = 0
+        new_shares = current_shares + 1
+
+        await db.posts.update_one(
+            {"post_id": post_id},
+            {"$set": {"engagement.shares": new_shares}}
+        )
+
+        # Construct the shared post URL
+        fb_id = result["id"]
+        page_id, post_id_fb = fb_id.split("_")
+        shared_post_url = f"https://www.facebook.com/{page_id}/posts/{post_id_fb}"
+
+    return {
+        "success": response.status_code == 200 and "id" in result,
+        "facebook_response": result,
+        "shared_post_url": shared_post_url
+    }
+
+def parse_count(value):
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        value = value.strip().upper()
+        if value.endswith("K"):
+            try:
+                return int(float(value[:-1]) * 1000)
+            except ValueError:
+                return 0
+        elif value.endswith("M"):
+            try:
+                return int(float(value[:-1]) * 1000000)
+            except ValueError:
+                return 0
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+    return 0
+
+async def get_post_metrics(user_id: int) -> dict:
+    """
+    Return platform counts, engagement metrics, and sentiment analysis percentages
+    for posts filtered by user_id (using get_user_id_filter).
+    """
+    user_id_filter = get_user_id_filter(user_id)
+    posts = await db.posts.find(user_id_filter).to_list(length=None)
+    post_object_ids = [post["_id"] for post in posts]
+
+    # Only fetch comments for these posts
+    comments = await db.comments.find({"post_id": {"$in": post_object_ids}}).to_list(length=None)
+
+    # --- PLATFORM COUNT LOGIC ---
+    platform_counts = {
+        "official_website": len([p for p in posts if 1 <= p.get("user_id", 0) <= 5]),
+        "twitter": len([p for p in posts if 6 <= p.get("user_id", 0) <= 10]),
+        "facebook": len([p for p in posts if 11 <= p.get("user_id", 0) <= 15]),
+    }
+
+    # --- ENGAGEMENT METRICS ---
+    total_likes = sum(parse_count(p.get("engagement", {}).get("likes", 0)) for p in posts)
+    total_shares = sum(parse_count(p.get("engagement", {}).get("shares", 0)) for p in posts)
+    total_comments = sum(parse_count(p.get("engagement", {}).get("comment_count", 0)) for p in posts)
+    total_engagement = total_likes + total_shares + total_comments
+
+    # --- SENTIMENT METRICS ---
+    sentiment_counter = Counter()
+    total_sentiments = 0
+
+    # From posts
+    for post in posts:
+        sentiment = post.get("sentiment_analysis")
+        if sentiment:
+            sentiment_counter[sentiment.lower()] += 1
+            total_sentiments += 1
+
+    # From subcomments in comment documents
+    for doc in comments:
+        for c in doc.get("comments", []):
+            sentiment = c.get("sentiment_analysis") or c.get("sentiment_analysis2")
+            if sentiment:
+                sentiment_counter[sentiment.lower()] += 1
+                total_sentiments += 1
+
+    # Calculate percentage
+    sentiment_percentages = {
+        "positive": round(100 * sentiment_counter.get("positive", 0) / total_sentiments, 2) if total_sentiments else 0.0,
+        "neutral": round(100 * sentiment_counter.get("neutral", 0) / total_sentiments, 2) if total_sentiments else 0.0,
+        "negative": round(100 * sentiment_counter.get("negative", 0) / total_sentiments, 2) if total_sentiments else 0.0,
+    }
+
+    return {
+        "platform_counts": platform_counts,
+        "engagement": {
+            "likes": total_likes,
+            "shares": total_shares,
+            "comments": total_comments,
+            "total": total_engagement,
+        },
+        "sentiment_analysis": sentiment_percentages
+    }
+    """
+    Return platform counts, engagement metrics, and sentiment analysis percentages
+    for posts filtered by user_id (using get_user_id_filter).
+    """
+    user_id_filter = get_user_id_filter(user_id)
+    posts = await db.posts.find(user_id_filter).to_list(length=None)
+    post_object_ids = [post["_id"] for post in posts]
+
+    # Only fetch comments for these posts
+    comments = await db.comments.find({"post_id": {"$in": post_object_ids}}).to_list(length=None)
+
+    # --- PLATFORM COUNT LOGIC ---
+    platform_counts = {
+        "official_website": len([p for p in posts if 1 <= p.get("user_id", 0) <= 5]),
+        "twitter": len([p for p in posts if 6 <= p.get("user_id", 0) <= 10]),
+        "facebook": len([p for p in posts if 11 <= p.get("user_id", 0) <= 15]),
+    }
+
+    # --- ENGAGEMENT METRICS ---
+    total_likes = sum(int(p.get("engagement", {}).get("likes", 0)) for p in posts)
+    total_shares = sum(int(p.get("engagement", {}).get("shares", 0)) for p in posts)
+    total_comments = sum(int(p.get("engagement", {}).get("comment_count", 0)) for p in posts)
+    total_engagement = total_likes + total_shares + total_comments
+
+    # --- SENTIMENT METRICS ---
+    sentiment_counter = Counter()
+    total_sentiments = 0
+
+    # From posts
+    for post in posts:
+        sentiment = post.get("sentiment_analysis")
+        if sentiment:
+            sentiment_counter[sentiment.lower()] += 1
+            total_sentiments += 1
+
+    # From subcomments in comment documents
+    for doc in comments:
+        for c in doc.get("comments", []):
+            sentiment = c.get("sentiment_analysis") or c.get("sentiment_analysis2")
+            if sentiment:
+                sentiment_counter[sentiment.lower()] += 1
+                total_sentiments += 1
+
+    # Calculate percentage
+    sentiment_percentages = {
+        "positive": round(100 * sentiment_counter.get("positive", 0) / total_sentiments, 2) if total_sentiments else 0.0,
+        "neutral": round(100 * sentiment_counter.get("neutral", 0) / total_sentiments, 2) if total_sentiments else 0.0,
+        "negative": round(100 * sentiment_counter.get("negative", 0) / total_sentiments, 2) if total_sentiments else 0.0,
+    }
+
+    return {
+        "platform_counts": platform_counts,
+        "engagement": {
+            "likes": total_likes,
+            "shares": total_shares,
+            "comments": total_comments,
+            "total": total_engagement,
+        },
+        "sentiment_analysis": sentiment_percentages
+    }

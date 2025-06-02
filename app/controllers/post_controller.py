@@ -3,8 +3,16 @@ from fastapi import HTTPException
 from ..schemas import CommentResponse, Post, Comment
 from ..services.post_service import add_new_comment, add_new_post, count_posts_by_scam_framing_and_sentiment, count_posts_by_scam_type_and_sentiment, count_posts_by_user_id_group_by_scam_framing, count_posts_by_user_id_group_by_scam_type_and_framing, delete_comment_by_id, get_combined_comments_by_post_id, get_comments_by_post_id, get_posts_by_user_id, count_posts_by_user_id, count_posts_by_user_id_group_by_scam_type, count_posts_by_user_id_group_by_platform,get_post_by_id, get_scam_framing_engagement_counts, get_scam_type_engagement_counts, get_sentiment_analysis_by_user_id, mark_post_as_deleted, post_to_facebook_by_post_id, update_post, update_post_likes
 
-async def fetch_posts_by_user_id(user_id: int, platform: Optional[str] = None, scam_framing: Optional[str] = None, scam_type: Optional[str] = None) -> List[Post]:
-    return await get_posts_by_user_id(user_id, platform, scam_framing, scam_type)
+async def fetch_posts_by_user_id(
+    user_id: int,
+    platform: Optional[str] = None,
+    scam_framing: Optional[str] = None,
+    scam_type: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 10,
+    agency: Optional[str] = None
+) -> List[Post]:
+    return await get_posts_by_user_id(user_id, platform, scam_framing, scam_type, offset, limit,agency)
 
 async def fetch_post_count_by_user_id(user_id: int) -> int:
     # if user_id > 15:
@@ -26,7 +34,7 @@ async def fetch_post_count_by_user_id_group_by_scam_type_and_framing(user_id: in
 async def fetch_post_by_id(post_id: int) -> Post:
     return await get_post_by_id(post_id)
 
-async def fetch_comments_by_post_id(post_id: int) -> List[Comment]:
+async def fetch_comments_by_post_id(post_id: int) -> Dict:
     return await get_comments_by_post_id(post_id)
 
 async def fetch_combined_comments_by_post_id(post_id: int) -> Dict:

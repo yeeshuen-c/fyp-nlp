@@ -1,13 +1,23 @@
 from fastapi import APIRouter, Body, HTTPException, Path, Query
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
+
+from app.services.post_service import get_post_metrics
 from ..schemas import CommentCreate, CommentResponse, Post, Comment
 from ..controllers.post_controller import create_comment, create_new_post, delete_comment, fetch_combined_comments_by_post_id, fetch_comments_by_post_id, fetch_post_count_by_user_id_group_by_scam_type_and_framing, fetch_posts_by_user_id, fetch_post_count_by_user_id, fetch_post_count_by_user_id_group_by_scam_type, fetch_post_count_by_user_id_group_by_platform, fetch_post_by_id, fetch_scam_framing_engagement_counts, fetch_scam_type_engagement_counts, fetch_sentiment_analysis_by_user_id, get_scam_framing_and_sentiment_counts, get_scam_framing_counts, get_scam_type_and_sentiment_counts, mark_post_as_deleted_controller, share_post_to_facebook_controller, update_post_controller, update_post_likes_controller
 
 router = APIRouter()
 
 @router.get("/posts/user/{user_id}", response_model=List[Post])
-async def get_posts(user_id: int, platform: Optional[str] = Query(None), scam_framing: Optional[str] = Query(None), scam_type: Optional[str] = Query(None)):
-    return await fetch_posts_by_user_id(user_id, platform, scam_framing, scam_type)
+async def get_posts(
+    user_id: int,
+    offset: int = Query(0),
+    limit: int = Query(10),
+    platform: Optional[str] = Query(None),
+    scam_framing: Optional[str] = Query(None),
+    scam_type: Optional[str] = Query(None),
+    agency: Optional[str] = Query(None)
+):
+    return await fetch_posts_by_user_id(user_id, platform, scam_framing, scam_type, offset, limit, agency)
 
 @router.get("/posts/user/{user_id}/count", response_model=int)
 async def get_post_count(user_id: int):
@@ -25,7 +35,7 @@ async def get_post_count_by_platform(user_id: int):
 async def get_post(post_id: int):
     return await fetch_post_by_id(post_id)
 
-@router.get("/posts/{post_id}/comments", response_model=List[Comment])
+@router.get("/posts/{post_id}/comments", response_model=Dict)
 async def get_comments(post_id: int):
     return await fetch_comments_by_post_id(post_id)
 
@@ -143,3 +153,14 @@ async def share_post_to_facebook(
     post_id: int = Path(..., description="The post_id of the post to share to Facebook")
 ):
     return await share_post_to_facebook_controller(post_id)
+
+@router.get("/posts/user/{user_id}/metrics", response_model=Dict[str, Any])
+async def api_get_post_metrics(user_id: int):
+    """
+    Get platform counts, engagement metrics, and sentiment analysis percentages for posts filtered by user_id.
+    """
+    try:
+        result = await get_post_metrics(user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
