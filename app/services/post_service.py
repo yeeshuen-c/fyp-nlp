@@ -521,13 +521,14 @@ async def update_post(post_id: int, user_id: int, post_title: Optional[str] = No
         update_data["content"] = post_content
     if url is not None:
         update_data["post_url"] = url
-    print(update_data)
+    # print(update_data)
+    print(f"Querying with post_id={post_id} ({type(post_id)})")
 
     if not update_data:
         raise ValueError("No data provided to update")
 
     result = await db.posts.find_one_and_update(
-        {"post_id": post_id, "user_id": user_id},
+        {"post_id": post_id},
         {"$set": update_data},
         return_document=ReturnDocument.AFTER
     )
@@ -536,7 +537,9 @@ async def update_post(post_id: int, user_id: int, post_title: Optional[str] = No
 
     if result is None:
         return None
-
+    # Normalize datetime fields to string
+    if isinstance(result.get("date"), datetime):
+        result["date"] = result["date"].isoformat()
     return Post(**result)
 
 async def mark_post_as_deleted(post_id: int, user_id: int) -> Optional[Post]:
