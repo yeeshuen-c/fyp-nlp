@@ -63,7 +63,7 @@ async def get_posts_by_user_id(
     user_id_filter = get_user_id_filter(user_id, platform)
 
     if scam_framing:
-        user_id_filter["analysis.scam_framing"] = scam_framing
+        user_id_filter["analysis.scam_framing2"] = scam_framing
     if scam_type:
         user_id_filter["analysis.scam_type"] = scam_type
 
@@ -92,6 +92,10 @@ async def get_posts_by_user_id(
         if 'comment_count2' in engagement:
             engagement['comment_count'] = engagement['comment_count2']
         post['engagement'] = engagement
+
+        # Always use scam_framing2 as scam_framing in the returned analysis
+        if "analysis" in post:
+            post["analysis"]["scam_framing"] = post["analysis"].get("scam_framing2", "")
 
         posts.append(Post(**post))
 
@@ -166,6 +170,7 @@ async def count_posts_by_user_id_group_by_scam_type_and_framing(user_id: int) ->
 async def get_post_by_id(post_id: int) -> Post:
     """
     Retrieve a post by its post_id and ensure engagement.comment_count2 is used if it exists.
+    Also, always use analysis.scam_framing2 as scam_framing in the returned analysis.
     """
     post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}}, hint="_id_", max_time_ms=5000)
     print(f"Fetched data from DB: {post_data}")  # Debugging
@@ -189,20 +194,10 @@ async def get_post_by_id(post_id: int) -> Post:
             engagement['comment_count'] = engagement['comment_count2']
         post_data['engagement'] = engagement
 
-        return Post(**post_data)
-    return None 
-    post_data = await db.posts.find_one({"post_id": post_id, "deleted": {"$ne": 1}}, hint="_id_", max_time_ms=5000)
-    print(f"Fetched data from DB: {post_data}")  # Debugging
-    if post_data:
-        post_data['date'] = post_data.get('date', "No Date")
-        if post_data['date'] is None:
-            post_data['date'] = "No Date"
-        elif isinstance(post_data['date'], datetime):
-            post_data['date'] = post_data['date'].isoformat()
-        post_data['post_title'] = post_data.get('post_title', "")
-        post_data['image'] = post_data.get('image', {})
-        post_data['media'] = post_data.get('media', [])
-        post_data['media_url'] = post_data.get('media_url', [])
+        # Always use scam_framing2 as scam_framing in the returned analysis
+        if "analysis" in post_data:
+            post_data["analysis"]["scam_framing"] = post_data["analysis"].get("scam_framing2", "")
+
         return Post(**post_data)
     return None
 
@@ -370,25 +365,21 @@ async def get_sentiment_analysis_by_user_id(user_id: int) -> Dict[str, float]:
     Get sentiment analysis for a user_id and return the percentage of positive, negative, and neutral sentiments.
     """
     user_id_filter = get_user_id_filter(user_id)
-    
-    # Fetch all posts by user_id to get post_ids
     posts = await db.posts.find(user_id_filter).to_list(length=None)
     post_ids = [post['post_id'] for post in posts]
-    
+
     sentiment_mapping = {"positive": "positive", "neutral": "neutral", "negative": "negative"}
     sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
     total_comments = 0
-    
+
     for post_id in post_ids:
-        comments = await get_comments_by_post_id(post_id)
-        
-        for comment in comments:
-            for comment_content in comment.comments:
-                sentiment = getattr(comment_content, "sentiment_analysis", None)
-                if sentiment in sentiment_mapping:
-                    sentiment_counts[sentiment_mapping[sentiment]] += 1
-                    total_comments += 1
-    
+        comments_dict = await get_comments_by_post_id(post_id)
+        for comment_content in comments_dict.get("comments", []):
+            sentiment = comment_content.get("sentiment_analysis", None)
+            if sentiment and sentiment.lower() in sentiment_mapping:
+                sentiment_counts[sentiment_mapping[sentiment.lower()]] += 1
+                total_comments += 1
+
     # Calculate percentages
     if total_comments > 0:
         sentiment_percentages = {
@@ -398,7 +389,7 @@ async def get_sentiment_analysis_by_user_id(user_id: int) -> Dict[str, float]:
         }
     else:
         sentiment_percentages = {"positive": 0, "neutral": 0, "negative": 0}
-    
+
     return sentiment_percentages
 
 vectorizer = joblib.load("ml/scamtype/vectorizer.pkl")
@@ -513,15 +504,26 @@ async def add_new_comment(post_id: int, comment_content: str) -> Dict:
 
     return new_comment
 
-async def update_post(post_id: int, user_id: int, post_title: Optional[str] = None, post_content: Optional[str] = None, url: Optional[str] = None) -> Optional[Post]:
+async def update_post(
+    post_id: int,
+    user_id: int,
+    post_title: Optional[str] = None,
+    post_content: Optional[str] = None,
+    url: Optional[str] = None
+) -> Optional[Post]:
     update_data = {}
     if post_title is not None:
         update_data["post_title"] = post_title
     if post_content is not None:
         update_data["content"] = post_content
+        # Rerun the pkl models if content is updated
+        scam_type = classify_scamtype(post_content)
+        scam_framing = classify_scamframing(post_content)
+        update_data["analysis.scam_type"] = scam_type
+        update_data["analysis.scam_framing2"] = scam_framing
     if url is not None:
         update_data["post_url"] = url
-    # print(update_data)
+
     print(f"Querying with post_id={post_id} ({type(post_id)})")
 
     if not update_data:

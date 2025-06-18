@@ -544,6 +544,28 @@ async def print_comment_counts_by_user_id():
     for user_id in range(6, 16):
         print(f"user_id {user_id}: {user_comment_counts[user_id]} comments")
 
+async def print_content_and_label_counts():
+    """
+    Print the count of posts with non-empty content and not deleted,
+    for both scam_type and scam_framing2 label queries.
+    """
+    client = AsyncIOMotorClient("mongodb://localhost:27017")
+    db = client["scam_db2"]
+
+    # Count for scam_type
+    count_scam_type = await db.posts.count_documents({
+        "deleted": {"$ne": 1},
+        "content": {"$nin": [None, ""]}
+    })
+    print(f"Count of posts with non-empty content and not deleted (scam_type query): {count_scam_type}")
+
+    # Count for scam_framing2
+    count_scam_framing2 = await db.posts.count_documents({
+        "deleted": {"$ne": 1},
+        "content": {"$nin": [None, ""]}
+    })
+    print(f"Count of posts with non-empty content and not deleted (scam_framing2 query): {count_scam_framing2}")
+
 if __name__ == "__main__":
     # asyncio.run(update_user_passwords())
     # asyncio.run(export_post_labelling())
@@ -554,8 +576,9 @@ if __name__ == "__main__":
     # asyncio.run(update_sentiment_analysis_by_comment_id())
     # asyncio.run(fix_scam_framing())
     # asyncio.run(list_unique_scam_framing2())
-    asyncio.run(manual_update_missing_scam_framing2())
+    # asyncio.run(manual_update_missing_scam_framing2())
     # find_post_ids_not_in_excel_and_not_in_list()
     # asyncio.run(update_post_dates_for_user_range())
     # asyncio.run(print_post_counts_by_user_id())
     # asyncio.run(print_comment_counts_by_user_id())
+    asyncio.run(print_content_and_label_counts())
